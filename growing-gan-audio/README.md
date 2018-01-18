@@ -27,6 +27,10 @@ samples can be found [here](samples).
 
 ## Future Investigations
 
+- While noisy, the samples _do_ have some musical structure, and sound
+piano-like.  Is it possible to add an additional, explicit penalty for overly
+noisy samples?  Would the discriminator benefit from seeing a spectrogram
+instead of the raw audio samples?
 - It's unclear whether learning progressively higher sampling rates has any
 benefit.  A future experiment will compare these results to a vanilla WGAN-GP
 implementation for audio.
