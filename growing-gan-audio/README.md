@@ -22,6 +22,9 @@ The audio corpus for this experiment is
 Results are noisy and unsatisfying, but not completely without structure.  There
 are hints of piano flourishes and melodic lines buried in the noise.
 
+Spectrograms of generated audio, and ogg vorbis files with some generated
+samples can be found [here](samples).
+
 ## Future Investigations
 
 - It's unclear whether learning progressively higher sampling rates has any
