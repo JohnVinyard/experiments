@@ -27,6 +27,7 @@ samples can be found [here](samples).
 
 ## Future Investigations
 
+- Try this on a simpler dataset (NSynth?)
 - While noisy, the samples _do_ have some musical structure, and sound
 piano-like.  Is it possible to add an additional, explicit penalty for overly
 noisy samples?  Would the discriminator benefit from seeing a spectrogram

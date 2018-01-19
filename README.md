@@ -5,3 +5,4 @@ conducted, mostly focused on audio generation.
 
 ## Currently Interesting
 - [Progressively Growing GANs for Audio Generation](growing-gan-audio)
+- [Unsupervised Spectrogram Embeddings](spectrogram-embedding)
