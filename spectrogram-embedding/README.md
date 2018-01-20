@@ -45,7 +45,7 @@ together.
 
 ## Future Investigations
 
-- Is there a better way to choose negative examples.  It's possible, but
+- Is there a better way to choose negative examples?  It's possible, but
 hopefully unlikely, that negative examples are also semantically/perceptually
 similar to the anchor.  As long as this happens infrequently, it probably
 doesn't matter
