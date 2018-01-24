@@ -37,7 +37,7 @@ class Generator(nn.Module):
         self.main = nn.Sequential(
             ConvTranspose1d(
                 latent_dim, 512, 4, 1, 0,
-                sample_norm=True, dropout=False,activation=activation),
+                sample_norm=True, dropout=False, activation=activation),
             ConvTranspose1d(
                 512, 256, 8, 4, 2,
                 sample_norm=True, dropout=False, activation=activation),
