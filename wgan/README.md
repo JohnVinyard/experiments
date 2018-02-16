@@ -39,4 +39,6 @@ less "clean" signals?
     - pop music
 
 ## Samples
-<audio src="samples/eff326bb28d342b78ab97a5facdcdda8.ogg" />
+<audio controls="controls">
+    <source src="samples/eff326bb28d342b78ab97a5facdcdda8.ogg" />
+</audio>
