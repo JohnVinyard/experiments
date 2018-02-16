@@ -37,3 +37,6 @@ less "clean" signals?
     - Speech
     - drum loops
     - pop music
+
+## Samples
+<audio src="samples/eff326bb28d342b78ab97a5facdcdda8.ogg" />
