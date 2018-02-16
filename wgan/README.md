@@ -39,6 +39,6 @@ less "clean" signals?
     - pop music
 
 ## Samples
-<audio controls="controls">
-    <source src="samples/eff326bb28d342b78ab97a5facdcdda8.ogg" />
-</audio>
+Samples from the model can be heard here:
+
+https://soundcloud.com/user-961608881/sets/wgan-gp-audio-samples
