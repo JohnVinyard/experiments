@@ -1,0 +1,14 @@
+version: '2'
+
+services:
+  experiment:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    ports:
+        - "9999:8888"
+    environment:
+        - OBJECT_STORAGE_REGION
+        - OBJECT_STORAGE_USER
+        - OBJECT_STORAGE_API_KEY
+        - APP_SECRET
