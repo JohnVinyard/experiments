@@ -29,31 +29,6 @@ spectrogram_duration = 64
 
 anchor_slice = slice(spectrogram_duration, spectrogram_duration * 2)
 
-BasePipeline = zounds.learning_pipeline()
-
-
-@zounds.simple_settings
-class EmbeddingPipeline(BasePipeline):
-    scaled = ff.PickleFeature(
-        zounds.InstanceScaling,
-        needs=BasePipeline.shuffled)
-
-    embedding = ff.PickleFeature(
-        zounds.PyTorchNetwork,
-        trainer=ff.Var('trainer'),
-        post_training_func=(lambda x: x[:, anchor_slice].astype(np.float32)),
-        needs=dict(data=scaled))
-
-    unitnorm = ff.PickleFeature(
-        zounds.UnitNorm,
-        needs=embedding)
-
-    pipeline = ff.PickleFeature(
-        zounds.PreprocessingPipeline,
-        needs=(scaled, embedding, unitnorm),
-        store=True)
-
-
 scale = zounds.GeometricScale(
     start_center_hz=50,
     stop_center_hz=samplerate.nyquist,
@@ -109,12 +84,6 @@ class Sound(BaseModel):
         wscheme=spectrogram_sample_rate,
         needs=geom)
 
-    embedding = zounds.ArrayWithUnitsFeature(
-        zounds.Learned,
-        learned=EmbeddingPipeline(),
-        dtype=np.float32,
-        needs=ls)
-
 
 def additive_noise(anchor, neighborhood):
     amt = np.random.uniform(0.01, 0.05)
@@ -155,6 +124,7 @@ class BasicConvolutionalBlock(nn.Module):
     Two-dimensional convolution, batch norm, and a leaky ReLU applied in
     sequence
     """
+
     def __init__(self, in_channels, out_channels, kernel, stride, padding):
         super(BasicConvolutionalBlock, self).__init__()
         self.conv = nn.Conv2d(
@@ -172,6 +142,7 @@ class ResidualBlock(nn.Module):
     """
     A block that computes the residual after two sequential convolutions
     """
+
     def __init__(self, channels, kernel=(3, 3), stride=(1, 1), padding=(1, 1)):
         super(ResidualBlock, self).__init__()
         self.conv1 = BasicConvolutionalBlock(
@@ -191,6 +162,7 @@ class IncreaseFeatureMapSizeBlock(nn.Module):
     A block that increases the number of channels, without changing the other
     dimensions of the feature map
     """
+
     def __init__(self, in_channels, out_channels):
         super(IncreaseFeatureMapSizeBlock, self).__init__()
         self.conv1 = nn.Conv2d(
@@ -248,11 +220,11 @@ class ResidualNetworkWithPooling(nn.Module):
         return x
 
 
-def access_log_spectrogram(snd):
-    print snd._id
-    x = snd.log_spectrogram
-    del snd
-    return x
+# def access_log_spectrogram(snd):
+#     print snd._id
+#     x = snd.log_spectrogram
+#     del snd
+#     return x
 
 
 def test_network():
@@ -263,7 +235,12 @@ def test_network():
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(parents=[
+        zounds.ObjectStorageSettings(),
+        zounds.AppSettings(),
+        zounds.NeuralNetworkTrainingSettings()
+    ])
+
     parser.add_argument(
         '--test-network',
         help='test the network with random noise and exit',
@@ -273,26 +250,13 @@ if __name__ == '__main__':
         help='retrain the model even if it exists',
         action='store_true')
     parser.add_argument(
-        '--epochs',
-        help='how many passes over the data should be made during training',
-        type=int)
-    parser.add_argument(
         '--init-weights',
         help='should weights be loaded from the existing model',
         action='store_true')
     parser.add_argument(
-        '--batch-size',
-        help='how many examples constitute a minibatch?',
-        type=int,
-        default=64)
-    parser.add_argument(
         '--repl',
         help='just start up a repl to interact with features',
         action='store_true')
-    parser.add_argument(
-        '--nsamples',
-        help='the number of samples to draw from the database for training',
-        type=int)
     parser.add_argument(
         '--search',
         help='build a brute force search index, and interact in-browser',
@@ -300,54 +264,98 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # start up an in-browser REPL to interact with the results
-    app = zounds.ZoundsApp(
-        model=Sound,
-        audio_feature=Sound.ogg,
-        visualization_feature=Sound.geom,
-        globals=globals(),
-        locals=locals())
-    port = 8888
+
+    @zounds.object_store_pipeline_settings(
+        'TripletLossEmbeddingPipeline',
+        args.object_storage_region,
+        args.object_storage_username,
+        args.object_storage_api_key)
+    @zounds.infinite_streaming_learning_pipeline
+    class EmbeddingPipeline(ff.BaseModel):
+        scaled = ff.PickleFeature(
+            zounds.InstanceScaling)
+
+        embedding = ff.PickleFeature(
+            zounds.PyTorchNetwork,
+            trainer=ff.Var('trainer'),
+            post_training_func=(
+                lambda x: x[:, anchor_slice].astype(np.float32)),
+            needs=dict(data=scaled))
+
+        unitnorm = ff.PickleFeature(
+            zounds.UnitNorm,
+            needs=embedding)
+
 
     if args.repl:
-        app.start(port=port)
+        # start up an in-browser REPL to interact with the results
+        app = zounds.ZoundsApp(
+            model=Sound,
+            audio_feature=Sound.ogg,
+            visualization_feature=Sound.geom,
+            globals=globals(),
+            locals=locals())
+        app.start(port=args.port)
     elif args.test_network:
         test_network()
     elif args.search:
         ep = EmbeddingPipeline()
 
+
+        class WithEmbedding(Sound):
+            embedding = zounds.ArrayWithUnitsFeature(
+                zounds.Learned,
+                learned=EmbeddingPipeline(),
+                dtype=np.float32,
+                needs=Sound.ls)
+
+
         def g():
-            for snd in Sound:
+            for snd in WithEmbedding:
                 print snd._id
                 yield snd._id, snd.embedding
 
+
         search = zounds.BruteForceSearch(g())
-        app.start(port=port)
+        # start up an in-browser REPL to interact with the results
+        app = zounds.ZoundsApp(
+            model=Sound,
+            audio_feature=Sound.ogg,
+            visualization_feature=Sound.geom,
+            globals=globals(),
+            locals=locals())
+        app.start(port=args.port)
     elif not EmbeddingPipeline.exists() or args.force_train:
-        network = ResidualNetworkWithPooling(spectrogram_duration, scale_bands)
 
         if args.init_weights:
-            embedding = EmbeddingPipeline()
-            weights = embedding.pipeline[1].network.state_dict()
-            network.load_state_dict(weights)
+            network = EmbeddingPipeline().load_network()
             print 'initialized weights'
+        else:
+            network = ResidualNetworkWithPooling(
+                spectrogram_duration, scale_bands)
 
         trainer = zounds.TripletEmbeddingTrainer(
             network,
             epochs=args.epochs,
             batch_size=args.batch_size,
             anchor_slice=anchor_slice,
-            deformations=[nearby, pitch_shift, time_stretch, additive_noise])
+            deformations=[nearby, pitch_shift, time_stretch, additive_noise],
+            checkpoint_epochs=1)
 
-        pool = Pool(cpu_count())
-        iterator = pool.imap_unordered(access_log_spectrogram, Sound)
-
-        EmbeddingPipeline.process(
-            samples=iterator,
+        app = zounds.TripletEmbeddingMonitorApp(
             trainer=trainer,
-            nsamples=args.nsamples,
-            dtype=np.float16)
+            model=Sound,
+            visualization_feature=Sound.geom,
+            audio_feature=Sound.ogg,
+            globals=globals(),
+            locals=locals(),
+            secret=args.app_secret)
 
-        pool.close()
-        pool.join()
-        app.start(port=port)
+        with app.start_in_thread(args.port):
+            EmbeddingPipeline.process(
+                dataset=(Sound, Sound.log_spectrogram),
+                trainer=trainer,
+                nsamples=args.nsamples,
+                dtype=np.float16)
+
+        app.start(port=args.port)
