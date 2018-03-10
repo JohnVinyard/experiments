@@ -5,6 +5,7 @@ conducted, mostly focused on audio generation.
 
 ## Currently Interesting
 - [Deep Audio Prior](deep-audio-prior)
+- [WaveGAN](wave-gan)
 - [AutoEncoder Trained with Perceptual Loss Function](raw-sample-autoencoder)
 - [Progressively Growing GANs for Audio Generation](growing-gan-audio)
 - [Unsupervised Spectrogram Embeddings](spectrogram-embedding)
