@@ -55,6 +55,10 @@ overfit on a dataset of size one?  Another interesting, and possibly related
 finding of the authors is that too many skip connections in the network hurt
 image restoration performance.
 
+### Losses
+
+![Losses](blob/master/deep-audio-prior/samples/losses.png?raw=True)
+
 ### Questions
 - Is the real takeaway of this paper that unlearned/unparameterized upsampling
   methods (and not convolutional networks themselves) are a decent image prior?
