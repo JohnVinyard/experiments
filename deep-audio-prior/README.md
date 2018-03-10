@@ -57,7 +57,7 @@ image restoration performance.
 
 ### Losses
 
-![Losses](blob/master/deep-audio-prior/samples/losses.png?raw=True)
+![Losses](samples/losses.png?raw=True)
 
 ### Questions
 - Is the real takeaway of this paper that unlearned/unparameterized upsampling
