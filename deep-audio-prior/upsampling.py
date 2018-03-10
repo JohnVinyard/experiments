@@ -29,14 +29,14 @@ class NearestNeighborUpsamplingBlock(UpSamplingBlock):
 
 class DctUpSamplingBlock(nn.Module):
     upsampling_type = 'dct'
+    dct_transform = DctTransform(use_cuda=True)
 
     def __init__(self, channels, factor):
         super(DctUpSamplingBlock, self).__init__()
         self.factor = factor
-        self.dct_tranform = DctTransform(use_cuda=True)
 
     def forward(self, x):
-        return self.dct_tranform.dct_resample(x, self.factor, axis=-1)
+        return self.dct_transform.dct_resample(x, self.factor, axis=-1)
 
 
 class LearnedUpSamplingBlock(nn.Module):

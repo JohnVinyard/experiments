@@ -46,7 +46,7 @@ unwanted noise faithfully.  It seems the authors likely encountered similar
 results, given this excerpt from the
 [supplementary materials](https://box.skoltech.ru/index.php/s/ib52BOoV58ztuPM#pdfviewer):
 
-> An alternative upsamplingmethod could be to use transposed convolutions,
+> An alternative upsampling method could be to use transposed convolutions,
 > but the results we obtained using them were worse.
 
 This is fascinating.  Initially, I expected that _every_ variant would
@@ -55,8 +55,9 @@ overfit on a dataset of size one?  Another interesting, and possibly related
 finding of the authors is that too many skip connections in the network hurt
 image restoration performance.
 
-
 ### Questions
+- Is the real takeaway of this paper that unlearned/unparameterized upsampling
+  methods (and not convolutional networks themselves) are a decent image prior?
 - Do certain kinds of upsampling limit the flow of gradient the same way
   restricting skip connections might?  Is limited gradient flow key to this
   working?
@@ -78,3 +79,7 @@ corrupted region to exclude, heading off an obvious path to "overfitting"
 
 
 ## Samples
+
+Samples of various iterations of the four upsampling methods for four different
+audio files can be heard here:
+https://soundcloud.com/user-961608881/sets/deep-audio-prior

@@ -23,11 +23,14 @@ from plot import plot_gradients, plot_losses
 
 latent_dim = 100
 iterations = 2500
+checkpoint_every = 200
 kernel_sizes = [4, 8, 16, 32]
+
+# stop training when the l2 norm falls below this threshold
+error_threshold = 3.0
 
 samplerate = zounds.SR11025()
 sample_size = 8192
-error_threshold = 3
 Sound = sound_cls(samplerate, sample_size)
 
 
@@ -86,6 +89,9 @@ def checkpoint_restoration(
         upsampling_name,
         restored_audio,
         checkpoint_every=200):
+    """
+    Dump the current restored audio to disk
+    """
     if iteration > 0 and iteration % checkpoint_every == 0:
         filename = 'samples/{_id}_{upsampling_name}_iter_{iteration}.wav' \
             .format(**locals())
@@ -158,7 +164,7 @@ def main():
                     _id,
                     upsampling_name,
                     restored_audio,
-                    checkpoint_every=200)
+                    checkpoint_every=checkpoint_every)
 
                 print('LOSS', i, error)
 
