@@ -64,7 +64,8 @@ RUN pip install zounds && rm -rf /root/.cache/pip/*
 
 EXPOSE 8888
 
-COPY experiment.py app/experiment.py
+COPY *.py app/
+
 WORKDIR app
 CMD python experiment.py \
     --object-storage-region ${OBJECT_STORAGE_REGION} \

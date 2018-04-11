@@ -4,8 +4,14 @@ import subprocess
 import os
 import json
 from collections import namedtuple
+import zounds
+import glob
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+    parents=[
+        zounds.ObjectStorageSettings(),
+        zounds.AppSettings()
+    ])
 
 experiment = parser.add_argument_group(
     'experiment',
@@ -16,31 +22,8 @@ experiment.add_argument(
     required=True)
 experiment.add_argument(
     '--path',
-    help='absolute or relative path to experimtn python script',
+    help='absolute or relative path to experiment python script',
     required=True)
-
-object_storage = parser.add_argument_group(
-    'object-storage',
-    'Rackspace object storage settings for model checkpoint storage')
-object_storage.add_argument(
-    '--object-storage-region',
-    help='the rackspace object storage region',
-    default='DFW')
-object_storage.add_argument(
-    '--object-storage-username',
-    help='rackspace cloud username',
-    required=True)
-object_storage.add_argument(
-    '--object-storage-api-key',
-    help='rackspace cloud api key',
-    required=True)
-
-app = parser.add_argument_group(
-    'app', 'In-browser REPL settings')
-app.add_argument(
-    '--app-secret',
-    help='app password. If not provided, REPL is public',
-    required=False)
 
 aws = parser.add_argument_group(
     'aws', 'AWS EC2 settings')
@@ -63,13 +46,16 @@ def get_args():
             settings = Settings(**d)
             print settings
             return settings
-    except IOError:
+    except (ValueError, IOError):
         return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = get_args()
-    shutil.copyfile(args.path, 'experiment.py')
+    files = glob.glob1(args.path, '*.py')
+    for f in files:
+        shutil.copyfile(os.path.join(args.path, f), f)
+
     env = {
         'ACCESS_KEY': args.amazonec2_access_key,
         'SECRET_KEY': args.amazonec2_secret_key,
@@ -77,7 +63,7 @@ if __name__ == '__main__':
         'OBJECT_STORAGE_REGION': args.object_storage_region,
         'OBJECT_STORAGE_USER': args.object_storage_username,
         'OBJECT_STORAGE_API_KEY': args.object_storage_api_key,
-        'APP_SECRET': args.app_secret,
+        'APP_SECRET': args.app_secret
     }
     abspath = os.path.abspath(__file__)
     path, script = os.path.split(abspath)
