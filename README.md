@@ -9,3 +9,6 @@ conducted, mostly focused on audio generation.
 - [AutoEncoder Trained with Perceptual Loss Function](raw-sample-autoencoder)
 - [Progressively Growing GANs for Audio Generation](growing-gan-audio)
 - [Unsupervised Spectrogram Embeddings](spectrogram-embedding)
+
+These experiments can be deployed to an EC2 GPU instance and run using the
+[scripts found in `/deploy`](deploy).
