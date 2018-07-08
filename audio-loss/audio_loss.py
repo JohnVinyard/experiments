@@ -17,6 +17,7 @@ import zounds
 from generator import UpsamplingGenerator
 from zounds.learn import PerceptualLoss
 import argparse
+import numpy as np
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -41,7 +42,7 @@ class Sound(BaseModel):
         wfunc=None)
 
     scaled = zounds.ArrayWithUnitsFeature(
-        lambda x: zounds.instance_scale(x, axis=1),
+        lambda x: zounds.instance_scale(x, axis=1).astype(np.float32),
         needs=windowed)
 
 
@@ -118,7 +119,8 @@ if __name__ == '__main__':
         'https://archive.org/download/AOC11B/onclassical_luisi_bach_partita_G-major_bwv-829_2.ogg',
         'https://archive.org/download/TopGunAnthem/Berlin%20-%20Take%20My%20Breath%20Away.ogg',
         'https://ia802708.us.archive.org/20/items/LucaBrasi2/06-Kevin_Gates-Out_The_Mud_Prod_By_The_Runners_The_Monarch.ogg',
-        'https://archive.org/download/Greatest_Speeches_of_the_20th_Century/CheckersSpeech.ogg'
+        'https://archive.org/download/Greatest_Speeches_of_the_20th_Century/CheckersSpeech.ogg',
+        'http://www.phatdrumloops.com/audio/wav/lovedrops.wav'
     ]
 
     parser = argparse.ArgumentParser()
