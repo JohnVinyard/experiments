@@ -2,7 +2,7 @@ from __future__ import print_function
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.init import xavier_normal, calculate_gain
+from torch.nn.init import calculate_gain, xavier_normal_
 
 
 class UpsamplingGenerator(nn.Module):
@@ -20,10 +20,10 @@ class UpsamplingGenerator(nn.Module):
         )
         for i, p in enumerate(self.main.parameters()):
             if i < len(self.main) - 1:
-                p.data = xavier_normal(
+                xavier_normal_(
                     p.data, calculate_gain('leaky_relu', 0.2))
             else:
-                p.data = xavier_normal(p.data, 1)
+                xavier_normal_(p.data, 1)
 
     def forward(self, x):
         x = x.view(-1, self.latent_dim, 1)

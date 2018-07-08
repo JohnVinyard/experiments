@@ -16,6 +16,9 @@ import hashlib
 import zounds
 from generator import UpsamplingGenerator
 from zounds.learn import PerceptualLoss
+import argparse
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 samplerate = zounds.SR11025()
 window_size = 8192
@@ -85,14 +88,14 @@ class Experiment(object):
             .format(experiment_name=self.name)
         self.real_samples.save(real_file_name)
 
-        target = torch.from_numpy(self.target).cuda()
+        target = torch.from_numpy(self.target).to(device)
 
         network = UpsamplingGenerator(
-            latent_dim=latent_dim, n_channels=32).cuda()
+            latent_dim=latent_dim, n_channels=32).to(device)
 
         optimizer = Adam(network.parameters(), lr=0.0001, betas=(0, 0.9))
 
-        noise = torch.FloatTensor(latent_dim).normal_(0, 1).cuda()
+        noise = torch.FloatTensor(latent_dim).normal_(0, 1).to(device)
 
         for i in xrange(self.iterations):
             network.zero_grad()
@@ -103,15 +106,12 @@ class Experiment(object):
             optimizer.step()
 
             if i > 0 and i % self.checkpoint_every == 0:
-                print(self.name, i, float(error.data[0]))
+                print(self.name, i, error.data.item())
                 self._audio_generation_checkpoint(epoch=i)
 
         self._audio_generation_checkpoint(epoch=i)
 
 
-# TODO: Only move to cuda if it's available using device() method
-# TODO: Fix warnings about initialization technique
-# TODO: Introduce argparse
 if __name__ == '__main__':
 
     urls = [
@@ -121,8 +121,30 @@ if __name__ == '__main__':
         'https://archive.org/download/Greatest_Speeches_of_the_20th_Century/CheckersSpeech.ogg'
     ]
 
-    iterations = 1000
-    checkpoint_every = 250
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--iterations',
+        type=int,
+        default=1000,
+        help='How many iterations should each experiment be?')
+    parser.add_argument(
+        '--checkpoint-every',
+        type=int,
+        default=250,
+        help='How often should generated audio be saved to disk?')
+    parser.add_argument(
+        '--n-filters',
+        type=int,
+        default=512,
+        help='How many filters in the bark-spaced filter bank?')
+    parser.add_argument(
+        '--n-taps',
+        type=int,
+        default=512,
+        help='What is the kernel size (or number of "taps") for each filter?'
+    )
+
+    args = parser.parse_args()
 
     for url in urls:
         if not Sound.exists(url):
@@ -133,36 +155,40 @@ if __name__ == '__main__':
 
     scale = zounds.BarkScale(
         frequency_band=zounds.FrequencyBand(1, samplerate.nyquist),
-        n_bands=512)
+        n_bands=args.n_filters)
 
     perceptual_loss = PerceptualLoss(
         scale,
         samplerate,
         lap=1,
         log_factor=10,
-        basis_size=512,
+        basis_size=args.n_filters,
         frequency_weighting=zounds.AWeighting(),
-        cosine_similarity=True).cuda()
-    mse_loss = nn.MSELoss().cuda()
+        cosine_similarity=True).to(device)
+    mse_loss = nn.MSELoss().to(device)
 
     for snd in Sound:
+
+        # compute a stable identifier for this sound
         snd_id = hashlib.md5(snd._id).hexdigest()[:5]
 
+        # choose the window of audio samples in the middle of the song/clip
         sample = snd.scaled[len(snd.scaled) // 2].reshape((1, 1, window_size))
+
         pl = Experiment(
             '{snd_id}_perceptual'.format(**locals()),
             sample,
             perceptual_loss,
-            iterations,
-            checkpoint_every)
+            args.iterations,
+            args.checkpoint_every)
 
         pl.run()
         mse = Experiment(
             '{snd_id}_mse'.format(**locals()),
             sample,
             mse_loss,
-            iterations,
-            checkpoint_every)
+            args.iterations,
+            args.checkpoint_every)
         mse.run()
 
 
