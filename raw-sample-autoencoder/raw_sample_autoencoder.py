@@ -5,17 +5,18 @@ import featureflow as ff
 import numpy as np
 import zounds
 from torch import nn
-from torch.nn import functional as F
 from torch.optim import Adam
-from zounds.learn import from_var, model_hash, sample_norm, apply_network
-from zounds.learn import GatedConvLayer, GatedConvTransposeLayer
-import torch
-from torch.autograd import Variable
-from scipy.signal import gaussian
+from zounds.learn import \
+    from_var, model_hash, apply_network, PerceptualLoss, BandLoss
+from model import AutoEncoder, Encoder
+from loss import LearnedPatchLoss, BandLoss2, BandLoss3
 
 samplerate = zounds.SR11025()
 window_size = 2048
 latent_dim = 128
+n_filters = 64
+kernel_sizes = [3, 7, 15, 31]
+batch_size = 12
 
 BaseModel = zounds.windowed(
     wscheme=samplerate * (16, window_size),
@@ -27,132 +28,6 @@ class Sound(BaseModel):
     pass
 
 
-class GeneratorWithAttention(nn.Module):
-    def __init__(self):
-        super(GeneratorWithAttention, self).__init__()
-        self.attn_func = F.sigmoid
-        self.layers = [
-            self._make_layer(latent_dim, 512, 4, 2, 0),
-            self._make_layer(512, 512, 8, 4, 2),
-            self._make_layer(512, 512, 8, 4, 2),
-            self._make_layer(512, 512, 8, 4, 2),
-        ]
-        self.main = nn.Sequential(*self.layers)
-        self.final = nn.ConvTranspose1d(256, 1, 16, 8, 4, bias=False)
-        self.gate = nn.ConvTranspose1d(256, 1, 16, 8, 4, bias=False)
-
-    def _make_layer(self, in_channels, out_channels, kernel, stride, padding):
-        return GatedConvTransposeLayer(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel=kernel,
-            stride=stride,
-            padding=padding,
-            attention_func=self.attn_func,
-            norm=sample_norm)
-
-    def forward(self, x):
-        x = x.view(-1, latent_dim, 1)
-        x = self.main(x)
-        c = self.final(x)
-        g = self.gate(x)
-        x = self.attn_func(g) * c
-        return x
-
-
-class AnalyzerWithAttention(nn.Module):
-    def __init__(self):
-        super(AnalyzerWithAttention, self).__init__()
-        self.attn_func = F.sigmoid
-        self.first = nn.Conv1d(1, 256, 16, 8, 4, bias=False)
-        self.gate = nn.Conv1d(1, 256, 16, 8, 4, bias=False)
-        self.layers = [
-            self._make_layer(256, 512, 8, 4, 2),
-            self._make_layer(512, 512, 8, 4, 2),
-            self._make_layer(512, 512, 8, 4, 2),
-            self._make_layer(512, 512, 4, 2, 0)
-        ]
-        self.main = nn.Sequential(*self.layers)
-        self.linear = nn.Linear(512, latent_dim, bias=False)
-
-    def _make_layer(self, in_channels, out_channels, kernel, stride, padding):
-        return GatedConvLayer(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel=kernel,
-            stride=stride,
-            padding=padding,
-            attention_func=self.attn_func,
-            norm=sample_norm)
-
-    def forward(self, x):
-        x = x.view(-1, 1, window_size)
-        c = self.first(x)
-        g = self.gate(x)
-        x = self.attn_func(g) * c
-        x = self.main(x)
-        x = x.view(-1, 512)
-        x = self.linear(x)
-        return x
-
-
-class PerceptualLoss(nn.MSELoss):
-    def __init__(self):
-        super(PerceptualLoss, self).__init__()
-
-        scale = zounds.BarkScale(
-            zounds.FrequencyBand(50, samplerate.nyquist - 300),
-            n_bands=512)
-        scale.ensure_overlap_ratio(0.5)
-
-        self.scale = scale
-        basis_size = 512
-        self.lap = 2
-        self.basis_size = basis_size
-
-        basis = zounds.fir_filter_bank(
-            scale, basis_size, samplerate, gaussian(100, 3))
-
-        weights = Variable(torch.from_numpy(basis).float())
-        # out channels x in channels x kernel width
-        weights = weights.view(len(scale), 1, basis_size).contiguous()
-        self.weights = weights.cuda()
-
-    def _transform(self, x):
-        features = F.conv1d(
-            x, self.weights, stride=self.lap, padding=self.basis_size)
-
-        # half-wave rectification
-        features = F.relu(features)
-
-        # log magnitude
-        features = torch.log(1 + features * 10000)
-
-        return features
-
-    def forward(self, input, target):
-        input = input.view(-1, 1, window_size)
-        target = target.view(-1, 1, window_size)
-
-        input_features = self._transform(input)
-        target_features = self._transform(target)
-
-        return super(PerceptualLoss, self).forward(
-            input_features, target_features)
-
-
-class AutoEncoder(nn.Module):
-    def __init__(self):
-        super(AutoEncoder, self).__init__()
-        self.encoder = AnalyzerWithAttention()
-        self.decoder = GeneratorWithAttention()
-
-    def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return x
-
-
 def reconstruct():
     snd = Sound.random()
 
@@ -160,9 +35,8 @@ def reconstruct():
     _, windowed = snd.resampled.sliding_window_with_leftovers(
         window_size, window_size // 2, dopad=True)
 
-    # instance scaling
-    max = (windowed.max(axis=-1, keepdims=True) + 1e-8)
-    windowed /= max
+    maxes, windowed = zounds.instance_scale(
+        windowed, axis=-1, return_maxes=True)
 
     # encode
     encoded = apply_network(network.encoder, windowed, chunksize=64)
@@ -170,15 +44,18 @@ def reconstruct():
     # decode
     decoded = apply_network(network.decoder, encoded, chunksize=64)
     decoded = decoded.squeeze()
-    decoded *= np.hanning(window_size) * max
+
+    decoded *= maxes
+    decoded *= np.hanning(window_size)
     decoded = zounds.ArrayWithUnits.from_example(decoded, windowed)
 
     synth = zounds.WindowedAudioSynthesizer()
     recon = synth.synthesize(decoded)
-    return recon
+    return encoded, recon
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(parents=[
         zounds.ObjectStorageSettings(),
         zounds.AppSettings()
@@ -191,7 +68,7 @@ if __name__ == '__main__':
         required=False)
     parser.add_argument(
         '--loss',
-        help='which loss to use: (perceptual|mse)',
+        help='which loss to use: (perceptual|mse|categorical)',
         default='mse')
     args = parser.parse_args()
 
@@ -221,22 +98,52 @@ if __name__ == '__main__':
         network = RawSampleAutoEncoderPipeline.load_network()
         print 'loaded network with hash', model_hash(network)
     except RuntimeError as e:
-        network = AutoEncoder()
-        for parameter in network.parameters():
-            parameter.data.normal_(0, 0.02)
+        network = AutoEncoder(latent_dim, window_size, kernel_sizes, n_filters)
+        for p in network.parameters():
+            if p.data.dim() == 3:
+                p.data.normal_(0, 2. / p.data.shape[1])
+            elif p.data.dim() == 2:
+                p.data.normal_(0, 1. / p.data.shape[1])
+            else:
+                p.data.fill_(0)
 
-    loss = nn.MSELoss() if args.loss == 'mse' else PerceptualLoss()
+    if args.loss == 'mse':
+        loss = nn.MSELoss()
+    elif args.loss == 'perceptual':
+        scale = zounds.BarkScale(
+            zounds.FrequencyBand(20, samplerate.nyquist - 300), 500)
+        loss = PerceptualLoss(
+            scale,
+            samplerate,
+            lap=1,
+            log_factor=10,
+            frequency_weighting=zounds.AWeighting(),
+            phase_locking_cutoff_hz=1200)
+    elif args.loss == 'band':
+        # loss = BandLoss(
+        #     [1, 0.5, 0.25, 0.125, 0.0625, 0.03125],
+        #     spectral_shape_weight=0.001)
+        loss = BandLoss2(
+            [1, 0.5, 0.25, 0.125, 0.0625, 0.03125])
+    elif args.loss == 'learned':
+        loss = LearnedPatchLoss(
+            Encoder(latent_dim, window_size, kernel_sizes, n_filters))
+    else:
+        raise ValueError('loss {loss} not supported'.format(**locals()))
 
     trainer = zounds.SupervisedTrainer(
         model=network,
         loss=loss,
         optimizer=lambda model: Adam(
             chain(model.encoder.parameters(), model.decoder.parameters()),
-            lr=0.00005),
-        checkpoint_epochs=1,
-        epochs=50,
-        batch_size=32,
+            lr=0.0001, betas=(0, 0.9)),
+        checkpoint_epochs=200,
+        epochs=200,
+        batch_size=batch_size,
         holdout_percent=0.25)
+
+    trainer.cuda()
+    loss.cuda()
 
     app = zounds.SupervisedTrainingMonitorApp(
         trainer=trainer,
@@ -248,7 +155,7 @@ if __name__ == '__main__':
         secret=args.app_secret)
 
     if args.reconstruct:
-        recon = reconstruct()
+        encoded, recon = reconstruct()
     else:
         with app.start_in_thread(8888):
 
@@ -267,6 +174,7 @@ if __name__ == '__main__':
                 dataset=(Sound, Sound.windowed),
                 nsamples=int(1e5),
                 dtype=np.float32,
-                trainer=trainer)
+                trainer=trainer,
+                feature_filter=lambda x: x)
 
     app.start(8888)

@@ -53,10 +53,10 @@ tweaking the space in which the loss function is computed**
 
 ## Future Investigations
 
-- Try a categorical loss, over discretized raw samples (wavenet and pixelCNN style)
-- Try a discretized mixture of logistics loss (pixelCNN++ style)
-- Try adding an adversarial loss (i.e., a learned loss function)
-- Try computing MSE in the feature space of some pre-trained classifier network
+- categorical loss, over discretized raw samples (wavenet and pixelCNN style)
+- discretized mixture of logistics loss (pixelCNN++ style)
+- adversarial loss (i.e., a learned loss function)
+- MSE in the feature space of some pre-trained classifier network
 
 
 The latter two ideas are drawn from

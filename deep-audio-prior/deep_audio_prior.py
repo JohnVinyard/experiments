@@ -14,7 +14,7 @@ from hashlib import md5
 
 from sound import sound_cls
 from dataset import Dataset
-from loss import L2NormLoss
+from loss import L2NormLoss, BandLoss, PerceptualLoss
 from upsampling import \
     LinearUpSamplingBlock, NearestNeighborUpsamplingBlock, \
     LearnedUpSamplingBlock, DctUpSamplingBlock

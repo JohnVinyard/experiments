@@ -1,15 +1,8 @@
-"""
-Ablation Study:
-- remove bias
-- use transposed convolution, instead of upsampling followed by convolution
-- try elu, instead of relu
-
-"""
-
 import zounds
 from zounds.learn import GanExperiment
 from torch import nn
 from torch.nn import functional as F
+import argparse
 
 latent_dim = 100
 sample_size = 8192
@@ -81,17 +74,24 @@ class GanPair(nn.Module):
 
 
 if __name__ == '__main__':
-    def real_sample_transformer(windowed):
-        return windowed[zounds.Seconds(10):-zounds.Seconds(15)]
-
+    parser = argparse.ArgumentParser(parents=[
+        zounds.ObjectStorageSettings(),
+        zounds.AppSettings()
+    ])
+    args = parser.parse_args()
 
     experiment = GanExperiment(
         'wavegan',
         zounds.InternetArchive('AOC11B'),
         GanPair(),
-        real_sample_transformer=real_sample_transformer,
         latent_dim=latent_dim,
         sample_size=sample_size,
+        sample_hop=256,
         n_critic_iterations=5,
-        n_samples=int(4e5))
+        n_samples=int(1e5),
+        app_port=8888,
+        app_secret=args.app_secret,
+        object_storage_username=args.object_storage_username,
+        object_storage_api_key=args.object_storage_api_key,
+        object_storage_region=args.object_storage_region)
     experiment.run()
