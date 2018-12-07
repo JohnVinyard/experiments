@@ -1,0 +1,87 @@
+from __future__ import division, print_function
+import zounds
+import argparse
+from data import dataset
+from deformations import make_pitch_shift, make_time_stretch, additive_noise
+from training_data import TripletSampler
+from train import Trainer
+from network import EmbeddingNetwork
+import torch
+
+samplerate = zounds.SR11025()
+BaseModel = zounds.resampled(resample_to=samplerate, store_resampled=True)
+
+window_size_samples = 8192
+slice_duration = samplerate.frequency * window_size_samples
+temporal_proximity = zounds.Seconds(10)
+
+n_channels = 128
+kernel_size = 512
+frequency_band = zounds.FrequencyBand(20, samplerate.nyquist)
+scale = zounds.MelScale(frequency_band, n_channels)
+
+deformations = [
+    make_time_stretch(samplerate, window_size_samples),
+    make_pitch_shift(samplerate),
+    additive_noise
+]
+
+
+@zounds.simple_lmdb_settings('sounds', map_size=1e11, user_supplied_id=True)
+class Sound(BaseModel):
+    pass
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(parents=[
+        zounds.ui.AppSettings()
+    ])
+    parser.add_argument(
+        '--ingest',
+        help='should data be ingested',
+        action='store_true')
+    parser.add_argument(
+        '--batch-size',
+        help='Batch size to use when training',
+        type=int)
+    parser.add_argument(
+        '--checkpoint',
+        help='save network weights every N batches',
+        type=int)
+    parser.add_argument(
+        '--weights-file-path',
+        help='the name of the file where weights should be saved')
+    args = parser.parse_args()
+
+    if args.ingest:
+        zounds.ingest(dataset, Sound, multi_threaded=True)
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    network = EmbeddingNetwork().to(device)
+
+    try:
+        state_dict = torch.load(args.weights_file_path)
+        network.load_state_dict(state_dict)
+    except IOError:
+        network.initialize_weights()
+
+    sampler = TripletSampler(
+        Sound, slice_duration, deformations, temporal_proximity)
+    trainer = Trainer(
+        network=network,
+        triplet_sampler=sampler,
+        learning_rate=1e-4,
+        batch_size=args.batch_size).to(device)
+
+    for batch_num, error in enumerate(trainer.train()):
+        print('Batch: {batch_num}, Error: {error}'.format(**locals()))
+        if batch_num % args.checkpoint == 0:
+            torch.save(network.state_dict(), args.weights_file_path)
+
+    app = zounds.ZoundsApp(
+        model=Sound,
+        visualization_feature=Sound.resampled,
+        audio_feature=Sound.ogg,
+        globals=globals(),
+        locals=locals())
+    app.start(port=args.port)
