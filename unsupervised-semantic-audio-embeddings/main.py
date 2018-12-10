@@ -23,12 +23,6 @@ slice_duration = samplerate.frequency * window_size_samples
 # semantically similar
 temporal_proximity = zounds.Seconds(10)
 
-# The number of audio channels to use in our log-scaled mel spectrograms
-n_channels = 128
-kernel_size = 512
-frequency_band = zounds.FrequencyBand(20, samplerate.nyquist)
-scale = zounds.MelScale(frequency_band, n_channels)
-
 # a collection of the audio deformations we'll use during training.  Temporal
 # proximity is included implicitly
 deformations = [
