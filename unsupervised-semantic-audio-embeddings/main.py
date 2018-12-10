@@ -8,18 +8,29 @@ from train import Trainer
 from network import EmbeddingNetwork
 import torch
 
+# resample all audio in our dataset to this rate
 samplerate = zounds.SR11025()
+
+# produce a base class for our audio processing graph, which will do some
+# basic preprocessing and transcoding of the signal
 BaseModel = zounds.resampled(resample_to=samplerate, store_resampled=True)
 
+# the length in samples of the audio segments we'll be creating embeddings for
 window_size_samples = 8192
 slice_duration = samplerate.frequency * window_size_samples
+
+# segments occurring within ten seconds of our anchor will be considered
+# semantically similar
 temporal_proximity = zounds.Seconds(10)
 
+# The number of audio channels to use in our log-scaled mel spectrograms
 n_channels = 128
 kernel_size = 512
 frequency_band = zounds.FrequencyBand(20, samplerate.nyquist)
 scale = zounds.MelScale(frequency_band, n_channels)
 
+# a collection of the audio deformations we'll use during training.  Temporal
+# proximity is included implicitly
 deformations = [
     make_time_stretch(samplerate, window_size_samples),
     make_pitch_shift(samplerate),
@@ -29,6 +40,10 @@ deformations = [
 
 @zounds.simple_lmdb_settings('sounds', map_size=1e11, user_supplied_id=True)
 class Sound(BaseModel):
+    """
+    An audio processing graph, that will resample each audio file to 11025hz
+    and store the results in an LMDB database
+    """
     pass
 
 
@@ -60,9 +75,11 @@ if __name__ == '__main__':
     network = EmbeddingNetwork().to(device)
 
     try:
+        # load network weights from a file on disk
         state_dict = torch.load(args.weights_file_path)
         network.load_state_dict(state_dict)
     except IOError:
+        # There were no weights stored on disk.  Initialize them
         network.initialize_weights()
 
     sampler = TripletSampler(
