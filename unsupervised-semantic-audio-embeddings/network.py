@@ -27,6 +27,15 @@ def make_filter_bank(samplerate, basis_size, kernel_size, scale):
     return basis.real
 
 
+def batchwise_mean_std_normalization(x):
+    orig_shape = x.shape
+    x = x.view(x.shape[0], -1)
+    x = x - x.mean(dim=1, keepdim=True)
+    x = x / (x.std(dim=1, keepdim=True) + 1e-8)
+    x = x.view(orig_shape)
+    return x
+
+
 class FilterBank(nn.Module):
     def __init__(self, samplerate, channels, kernel_size, scale):
         super(FilterBank, self).__init__()
@@ -101,7 +110,8 @@ class FilterBank(nn.Module):
 
 class EmbeddingNetwork(nn.Module):
     """
-    Simple 2d convolutional network
+    Compute Log-scaled mel spectrogram, followed by a vanilla 2d convolutional
+    network with alternating convolutional and average pooling layers
     """
 
     def __init__(self):
@@ -154,20 +164,20 @@ class EmbeddingNetwork(nn.Module):
         x = F.avg_pool1d(x, 128, 64, padding=64)
 
         # give zero mean and unit variance
-        orig_shape = x.shape
-        x = x.view(x.shape[0], -1)
-        x = x - x.mean(dim=1, keepdim=True)
-        x = x / (x.std(dim=1, keepdim=True) + 1e-8)
-        x = x.view(orig_shape)
+        x = batchwise_unit_norm(x)
 
-        # view as 2d
+        # view as 2d spectrogram "image", so dimension are now
+        # (batch, 1, 128, 128)
         x = x[:, None, ...]
 
         for m in self.main:
             x = m(x)
             x = F.leaky_relu(x, 0.2)
 
+        # global max pooling
         x = F.max_pool2d(x, x.shape[2:])
+
+        # linear transformation
         x = x.view(-1, self.linear.in_features)
         x = self.linear(x)
         x = batchwise_unit_norm(x)

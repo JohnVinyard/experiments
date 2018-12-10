@@ -25,6 +25,9 @@ class SoundSlice(object):
 
 
 class TripletSampler(object):
+    """
+    Sample (anchor, positive, negative) triplets from a zounds database
+    """
     def __init__(
             self,
             sound_cls,
@@ -64,6 +67,10 @@ class TripletSampler(object):
         return SoundSlice(_id, duration, time_slice, samples)
 
     def _sample_proximal(self, sound_slice):
+        """
+        Sample temporally proximal (near-in-time) samples, given an anchor
+        sample
+        """
         min_start = zounds.Seconds(0)
         start = max(min_start, sound_slice.start - self.temporal_proximity)
         start_ps = start / zounds.Picoseconds(1)
@@ -77,6 +84,11 @@ class TripletSampler(object):
         return samples
 
     def sample(self, batch_size):
+        """
+        Sample batch_size triplets
+        """
+
+        # choose a deformation
         deformation = np.random.choice(self.deformations)
         is_temporal_proximity_batch = \
             deformation is self._temporal_proximity_sentinel
@@ -86,7 +98,7 @@ class TripletSampler(object):
         negatives = []
 
         for _ in xrange(batch_size):
-
+            # choose positive and negative examples randomly
             anchor_sound_slice = self._sample_slice()
             anchors.append(anchor_sound_slice.samples)
 
@@ -94,6 +106,8 @@ class TripletSampler(object):
             negatives.append(negative_sound_slice.samples)
 
             if is_temporal_proximity_batch:
+                # if we've chosen the "temporal proximity" deformation, find
+                # a nearby segment for our positive example
                 positive_samples = self._sample_proximal(anchor_sound_slice)
                 positives.append(positive_samples)
 
@@ -106,11 +120,13 @@ class TripletSampler(object):
             np.vstack(negatives), [identity_dim, time_dimension])
 
         if not is_temporal_proximity_batch:
+            # deform the anchor to derive the positve example
             positives = deformation(anchors)
         else:
             positives = zounds.ArrayWithUnits(
                 np.vstack(positives), [identity_dim, time_dimension])
 
+        # package up the batch and ship it
         batch = np.stack([anchors, positives, negatives], axis=1)
         batch = zounds.ArrayWithUnits(
             batch, [identity_dim, identity_dim, time_dimension])
