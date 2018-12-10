@@ -169,6 +169,17 @@ div#notebook {
   <div tabindex="-1" id="notebook" class="border-box-sizing">
     <div class="container" id="notebook-container">
 
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="Random-Projections">Random Projections<a class="anchor-link" href="#Random-Projections">&#182;</a></h1><p>This notebook will walk through a toy example of random projections, explain how they can be used for approximate K-nearest neighbors searches, and look at the speed/accuracy tradeoffs involved.</p>
+<p>First, some convenience functions for producing batches of N-dimensional vectors on the unit sphere.</p>
+
+</div>
+</div>
+</div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
 <div class="prompt input_prompt">In&nbsp;[220]:</div>
@@ -404,6 +415,17 @@ joACADRHQAEAmiOgAADNEVAAgOYIKABAc/4/J8eI4Qb9xfsAAAAASUVORK5CYII=
 </div>
 
 </div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="Hyperplanes-for-Dividing-the-Space">Hyperplanes for Dividing the Space<a class="anchor-link" href="#Hyperplanes-for-Dividing-the-Space">&#182;</a></h1><p>A hyperplane is a plane whose dimension is one less than the ambient space.  We can approximate the location of points by slicing it up using N of these hyperplanes.</p>
+<p>In the case where our data points all fall on the unit sphere, it makes sense for our hyperplanes to all pass through the origin, so we can define them with a single point in N-dimensional space that is perpindicular to the plane.</p>
+
+</div>
+</div>
+</div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
 <div class="prompt input_prompt">In&nbsp;[221]:</div>
@@ -469,6 +491,17 @@ joACADRHQAEAmiOgAADNEVAAgOYIKABAc/4/J8eI4Qb9xfsAAAAASUVORK5CYII=
 </div>
 </div>
 
+</div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="From-Hyperplanes-to-Bit-Vectors">From Hyperplanes to Bit Vectors<a class="anchor-link" href="#From-Hyperplanes-to-Bit-Vectors">&#182;</a></h1><p>We can charaterize each data point with a bit vector, one bit for each hyperplane, that is on or off depending on which side of each hyperplane the data point falls.</p>
+<p>This makes very fast brute force searches possible, by using processor instructions for bitwise XOR and then bit counting to compute the hamming distance between a query and all examples in the index</p>
+
+</div>
+</div>
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
@@ -1221,6 +1254,20 @@ SkmSJEnSwhxUSpIkSZIW5qBSkiRJkrSw/wcArdcjTTzmnwAAAABJRU5ErkJggg==
 </div>
 </div>
 
+</div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="A-More-Realistic-Example">A More Realistic Example<a class="anchor-link" href="#A-More-Realistic-Example">&#182;</a></h1><p>Now that we understand the basics, we'll work with a more realistic example featuring:</p>
+<ul>
+<li>500K data points (~100 hours of audio given our embedding scheme)</li>
+<li>128-dimensional embedding vectors</li>
+</ul>
+
+</div>
+</div>
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
@@ -3036,6 +3083,21 @@ gg==
 </div>
 
 </div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="Search-Types">Search Types<a class="anchor-link" href="#Search-Types">&#182;</a></h1><p>We'll measure the performance and accuracy of three different types of search:</p>
+<ul>
+<li>brute force cosine distance search in the 128-dimensional space (accuracy will always be perfect since this is our ground truth)</li>
+<li>bitwise hamming distance using only our random projection</li>
+<li>A hybrid approach, where we use the random projection to narrow the result set, and then use a brute-force cosine distance search on the subset</li>
+</ul>
+
+</div>
+</div>
+</div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
 <div class="prompt input_prompt">In&nbsp;[229]:</div>
@@ -3086,6 +3148,16 @@ gg==
 </div>
 </div>
 
+</div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="The-Experiment">The Experiment<a class="anchor-link" href="#The-Experiment">&#182;</a></h1><p>We'll run an experiment for each approach, measuring the speed and accuracy of each approach over 100 searches, with a search result set size of 50.</p>
+
+</div>
+</div>
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
@@ -3193,6 +3265,17 @@ gg==
 </div>
 </div>
 
+</div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<h1 id="The-Verdict">The Verdict<a class="anchor-link" href="#The-Verdict">&#182;</a></h1><p>The random projections alone are very fast, allowing up to 200 queries-per-second, but never breaking 50% accuracy, even with 2048 hyperplanes (and hence, bits).</p>
+<p>The hybrid approach has a sweet spot where we can do 50-90 queries per second, and get 70-95% accuracy.</p>
+
+</div>
+</div>
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
