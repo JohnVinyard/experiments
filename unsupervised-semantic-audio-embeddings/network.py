@@ -138,6 +138,10 @@ class EmbeddingNetwork(nn.Module):
 
         self.linear = nn.Linear(128, 128, bias=False)
 
+    def trainable_parameter_count(self):
+        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
+        return sum([np.prod(p.size()) for p in model_parameters])
+
     def to(self, *args, **kwargs):
         self.bank = self.bank.to(*args, **kwargs)
         return super(EmbeddingNetwork, self).to(*args, **kwargs)
@@ -164,7 +168,7 @@ class EmbeddingNetwork(nn.Module):
         x = F.avg_pool1d(x, 128, 64, padding=64)
 
         # give zero mean and unit variance
-        x = batchwise_unit_norm(x)
+        x = batchwise_mean_std_normalization(x)
 
         # view as 2d spectrogram "image", so dimension are now
         # (batch, 1, 128, 128)
