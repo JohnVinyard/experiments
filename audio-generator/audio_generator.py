@@ -187,8 +187,7 @@ if __name__ == '__main__':
         samplerate,
         lap=1,
         log_factor=10,
-        frequency_weighting=zounds.AWeighting(),
-        phase_locking_cutoff_hz=1200).cuda()
+        frequency_weighting=zounds.AWeighting()).cuda()
 
     encoder = Encoder(latent_dim, n_filters)
 
