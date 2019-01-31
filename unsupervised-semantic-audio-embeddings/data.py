@@ -1,6 +1,42 @@
 import zounds
+import os
+
+
+class FileSystemDataset(object):
+
+    EXTENSIONS = set(['.wav'])
+
+    def __init__(self, path, base_url):
+        super(FileSystemDataset, self).__init__()
+        self.path = path
+        self.base_url = base_url
+
+    def __iter__(self):
+
+        for base_path, _, filenames in os.walk(self.path):
+            for filename in filenames:
+                _, extension = os.path.splitext(filename)
+                if extension not in self.EXTENSIONS:
+                    continue
+                full_path = os.path.join(base_path, filename)
+                relative = os.path.relpath(full_path, self.path)
+                url = os.path.join(self.base_url, relative)
+                try:
+                    samples = zounds.AudioSamples.from_file(full_path)
+                except (ValueError, RuntimeError):
+                    continue
+                yield zounds.AudioMetaData(
+                    uri=zounds.datasets.PreDownload(samples.encode().read(), url),
+                    samplerate=int(samples.samplerate))
 
 datasets = [
+
+    FileSystemDataset('/hdd/musicnet/train_data/', 'https://musicnet.org/'),
+
+    FileSystemDataset('/hdd/freesound', 'https://freesound.org'),
+
+    zounds.PhatDrumLoops(),
+
     # Classical
     zounds.InternetArchive('AOC11B'),
     zounds.InternetArchive('CHOPINBallades-NEWTRANSFER'),

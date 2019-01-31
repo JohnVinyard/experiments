@@ -49,21 +49,47 @@ class TripletSampler(object):
         self.items = [item[0] for item in items]
         self.durations = dict(items)
 
-    def _get_samples(self, sound_id, start_ps):
+    def _get_samples(self, sound_id, start_ps, pad=False):
         snd = self.sound_cls(_id=sound_id)
         start = zounds.Picoseconds(int(start_ps))
         time_slice = zounds.TimeSlice(start=start, duration=self.slice_duration)
         max_samples = \
             int(self.slice_duration / snd.resampled.samplerate.frequency)
-        return time_slice, snd.resampled[time_slice][:max_samples]
+        samples = snd.resampled[time_slice][:max_samples]
+        sample_length = len(samples)
 
-    def _sample_slice(self):
+        if sample_length < max_samples:
+            if pad:
+                diff = max_samples - sample_length
+                padded = np.pad(
+                    samples, (0, diff), mode='constant', constant_values=0)
+                samples = zounds.ArrayWithUnits(padded, samples.dimensions)
+            else:
+                raise ValueError(
+                    '{sound_id} has only {sample_length} samples, '
+                    'but {max_samples} are required'.format(**locals()))
+
+        return time_slice, samples
+
+    def _random_sound(self):
         _id = np.random.choice(self.items, p=self.probabilities)
         duration = self.durations[_id]
         duration_ps = duration / zounds.Picoseconds(1)
+        return _id, duration, duration_ps
+
+    def _sample_slice(self, pad=False):
         slice_duration_ps = self.slice_duration / zounds.Picoseconds(1)
+
+        _id, duration, duration_ps = self._random_sound()
+
+        if not pad:
+            # we can't pad, so keep searching for a sound that is at least as
+            # long as our desired duration
+            while duration_ps < slice_duration_ps:
+                _id, duration, duration_ps = self._random_sound()
+
         start_ps = np.random.uniform(0, duration_ps - slice_duration_ps)
-        time_slice, samples = self._get_samples(_id, start_ps)
+        time_slice, samples = self._get_samples(_id, start_ps, pad=pad)
         return SoundSlice(_id, duration, time_slice, samples)
 
     def _sample_proximal(self, sound_slice):
@@ -80,7 +106,8 @@ class TripletSampler(object):
         end_ps = end / zounds.Picoseconds(1)
 
         proximal_start_ps = np.random.uniform(start_ps, end_ps)
-        _, samples = self._get_samples(sound_slice.sound_id, proximal_start_ps)
+        _, samples = self._get_samples(
+            sound_slice.sound_id, proximal_start_ps, pad=False)
         return samples
 
     def sample(self, batch_size):
@@ -99,10 +126,12 @@ class TripletSampler(object):
 
         for _ in xrange(batch_size):
             # choose positive and negative examples randomly
-            anchor_sound_slice = self._sample_slice()
+            anchor_sound_slice = self._sample_slice(
+                pad=not is_temporal_proximity_batch)
             anchors.append(anchor_sound_slice.samples)
 
-            negative_sound_slice = self._sample_slice()
+            negative_sound_slice = self._sample_slice(
+                pad=not is_temporal_proximity_batch)
             negatives.append(negative_sound_slice.samples)
 
             if is_temporal_proximity_batch:

@@ -7,6 +7,10 @@ from training_data import TripletSampler
 from train import Trainer
 from network import EmbeddingNetwork
 import torch
+import numpy as np
+import cPickle as pickle
+from search import TreeSearch, experiment
+
 
 # resample all audio in our dataset to this rate
 samplerate = zounds.SR11025()
@@ -38,7 +42,15 @@ class Sound(BaseModel):
     An audio processing graph, that will resample each audio file to 11025hz
     and store the results in an LMDB database
     """
-    pass
+    short_windowed = zounds.ArrayWithUnitsFeature(
+        zounds.SlidingWindow,
+        wscheme=zounds.HalfLapped(),
+        wfunc=zounds.OggVorbisWindowingFunc(),
+        needs=BaseModel.resampled)
+
+    stft = zounds.ArrayWithUnitsFeature(
+        zounds.FFT,
+        needs=short_windowed)
 
 
 if __name__ == '__main__':
@@ -60,6 +72,14 @@ if __name__ == '__main__':
     parser.add_argument(
         '--weights-file-path',
         help='the name of the file where weights should be saved')
+    parser.add_argument(
+        '--search',
+        help='test the search',
+        action='store_true')
+    parser.add_argument(
+        '--search-file-path',
+        help='the path where a pre-built search should be stored',
+        required=False)
     args = parser.parse_args()
 
     if args.ingest:
@@ -76,22 +96,45 @@ if __name__ == '__main__':
         # There were no weights stored on disk.  Initialize them
         network.initialize_weights()
 
-    sampler = TripletSampler(
-        Sound, slice_duration, deformations, temporal_proximity)
-    trainer = Trainer(
-        network=network,
-        triplet_sampler=sampler,
-        learning_rate=1e-4,
-        batch_size=args.batch_size).to(device)
+    if args.search:
+        try:
+            with open(args.search_file_path, 'rb') as f:
+                search = pickle.load(f)
+        except IOError:
+            def gen():
+                for snd in list(Sound):
+                    windowed = snd.resampled.sliding_window(zounds.SampleRate(
+                        frequency=samplerate.frequency * window_size_samples,
+                        duration=samplerate.frequency * window_size_samples
+                    ))
+                    raw = zounds.learn.apply_network(
+                        network,
+                        windowed.astype(np.float32),
+                        chunksize=64)
+                    ts = zounds.ArrayWithUnits(raw, windowed.dimensions)
+                    print(snd._id)
+                    yield snd._id, ts
 
-    for batch_num, error in enumerate(trainer.train()):
-        print('Batch: {batch_num}, Error: {error}'.format(**locals()))
-        if batch_num % args.checkpoint == 0:
-            torch.save(network.state_dict(), args.weights_file_path)
+            search = zounds.BruteForceSearch(gen(), distance_metric='cosine')
+            with open(args.search_file_path, 'wb') as f:
+                pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
+        tree_search = TreeSearch(search)
+    else:
+        sampler = TripletSampler(
+            Sound, slice_duration, deformations, temporal_proximity)
+        trainer = Trainer(
+            network=network,
+            triplet_sampler=sampler,
+            learning_rate=1e-4,
+            batch_size=args.batch_size).to(device)
+        for batch_num, error in enumerate(trainer.train()):
+            print('Batch: {batch_num}, Error: {error}'.format(**locals()))
+            if batch_num % args.checkpoint == 0:
+                torch.save(network.state_dict(), args.weights_file_path)
 
     app = zounds.ZoundsApp(
         model=Sound,
-        visualization_feature=Sound.resampled,
+        visualization_feature=Sound.stft,
         audio_feature=Sound.ogg,
         globals=globals(),
         locals=locals())
