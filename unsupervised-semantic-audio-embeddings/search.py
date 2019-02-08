@@ -167,7 +167,7 @@ class MultiHyperPlaneTree(object):
         to_consider = n_results * 100
 
         # put the root nodes in the queue
-        heap = [(-9999, root) for root in self.roots]
+        heap = [(None, root) for root in self.roots]
 
         # traverse the tree, finding candidate indices
         while heap and len(indices) < to_consider:

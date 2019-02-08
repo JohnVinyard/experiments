@@ -45,6 +45,21 @@ class EmbeddingNetwork(nn.Module):
 
         self.linear = nn.Linear(128, 128, bias=False)
 
+    @classmethod
+    def load_network(cls, weights_file_path):
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        network = cls().to(device)
+
+        try:
+            # load network weights from a file on disk
+            state_dict = torch.load(weights_file_path)
+            network.load_state_dict(state_dict)
+        except IOError:
+            # There were no weights stored on disk.  Initialize them
+            network.initialize_weights()
+
+        return network, device
+
     def trainable_parameter_count(self):
         model_parameters = filter(lambda p: p.requires_grad, self.parameters())
         return sum([np.prod(p.size()) for p in model_parameters])
@@ -92,34 +107,3 @@ class EmbeddingNetwork(nn.Module):
         x = batchwise_unit_norm(x)
         return x
 
-
-if __name__ == '__main__':
-    samplerate = zounds.SR11025()
-    synth = zounds.SineSynthesizer(samplerate)
-    window_size_samples = 8192
-    duration = samplerate.frequency * window_size_samples
-    samples = zounds.ArrayWithUnits.concat(
-        [
-            synth.synthesize(duration, [20.]),
-            synth.synthesize(duration, [100.]),
-            synth.synthesize(duration, [500.]),
-            synth.synthesize(duration, [2500.]),
-            synth.synthesize(duration, [samplerate.nyquist - 10]),
-        ],
-        axis=-1
-    )
-    samples = zounds.AudioSamples(samples, samplerate).pad_with_silence()
-    windowed_samples = samples.sliding_window(zounds.SampleRate(
-        frequency=duration, duration=duration))
-    scale = zounds.MelScale(zounds.FrequencyBand(20, samplerate.nyquist), 128)
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    fb = zounds.learn.FilterBank(samplerate, 512, scale).to(device)
-    windowed_samples = torch.from_numpy(windowed_samples).float().to(device)
-    spectrograms = fb(windowed_samples)
-    spectrograms = fb.temporal_pooling(spectrograms, 128, 64)
-    spectrograms = spectrograms.data.cpu().numpy().squeeze()
-
-    app = zounds.ZoundsApp(locals=locals(), globals=globals())
-    app.start(8888)

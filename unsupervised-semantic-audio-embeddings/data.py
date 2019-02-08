@@ -3,6 +3,11 @@ import os
 
 
 class FileSystemDataset(object):
+    """
+    A class conforming to the zounds dataset API that recursively yields wav
+    files from a directory on-disk.  Absolute urls are generated for each file
+    from a user-provided base_url and the file path and name.
+    """
 
     EXTENSIONS = set(['.wav'])
 
@@ -11,23 +16,37 @@ class FileSystemDataset(object):
         self.path = path
         self.base_url = base_url
 
-    def __iter__(self):
-
+    def _iter_files(self):
+        """
+        Recursively find all files with an allowed extension
+        """
         for base_path, _, filenames in os.walk(self.path):
             for filename in filenames:
                 _, extension = os.path.splitext(filename)
-                if extension not in self.EXTENSIONS:
-                    continue
-                full_path = os.path.join(base_path, filename)
-                relative = os.path.relpath(full_path, self.path)
-                url = os.path.join(self.base_url, relative)
-                try:
-                    samples = zounds.AudioSamples.from_file(full_path)
-                except (ValueError, RuntimeError):
-                    continue
-                yield zounds.AudioMetaData(
-                    uri=zounds.datasets.PreDownload(samples.encode().read(), url),
-                    samplerate=int(samples.samplerate))
+                if extension in self.EXTENSIONS:
+                    yield base_path, filename
+
+    def __iter__(self):
+        """
+        Recursively transform all wav files from a directory into zounds
+        AudioMetaData instances
+        """
+        for base_path, filename in self._iter_files():
+            full_path = os.path.join(base_path, filename)
+            relative = os.path.relpath(full_path, self.path)
+            url = os.path.join(self.base_url, relative)
+
+            try:
+                samples = zounds.AudioSamples.from_file(full_path)
+            except (ValueError, RuntimeError):
+                # the file may be corrupted.  skip it
+                continue
+
+            uri = zounds.datasets.PreDownload(samples.encode().read(), url)
+            yield zounds.AudioMetaData(
+                uri=uri,
+                samplerate=int(samples.samplerate))
+
 
 datasets = [
 

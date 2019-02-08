@@ -9,7 +9,7 @@ from network import EmbeddingNetwork
 import torch
 import numpy as np
 import cPickle as pickle
-from search import TreeSearch, experiment
+from search import TreeSearch
 
 
 # resample all audio in our dataset to this rate
@@ -36,7 +36,7 @@ deformations = [
 ]
 
 
-@zounds.simple_lmdb_settings('sounds', map_size=1e11, user_supplied_id=True)
+@zounds.simple_lmdb_settings('/hdd/sounddb2', map_size=1e11, user_supplied_id=True)
 class Sound(BaseModel):
     """
     An audio processing graph, that will resample each audio file to 11025hz
@@ -52,6 +52,40 @@ class Sound(BaseModel):
         zounds.FFT,
         needs=short_windowed)
 
+
+def train():
+    sampler = TripletSampler(
+        Sound, slice_duration, deformations, temporal_proximity)
+    trainer = Trainer(
+        network=network,
+        triplet_sampler=sampler,
+        learning_rate=1e-4,
+        batch_size=args.batch_size).to(device)
+    for batch_num, error in enumerate(trainer.train()):
+        print('Batch: {batch_num}, Error: {error}'.format(**locals()))
+        if batch_num % args.checkpoint == 0:
+            torch.save(network.state_dict(), args.weights_file_path)
+
+
+def build_search_index():
+    try:
+        with open(args.search_file_path, 'rb') as f:
+            search = pickle.load(f)
+    except IOError:
+        def gen():
+            for snd in list(Sound):
+                windowed = snd.resampled.sliding_window(
+                    samplerate * window_size_samples).astype(np.float32)
+                ts = zounds.learn.apply_network(
+                    network, windowed, chunksize=64)
+                print(snd._id)
+                yield snd._id, ts
+
+        search = zounds.BruteForceSearch(gen(), distance_metric='cosine')
+        with open(args.search_file_path, 'wb') as f:
+            pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
+    tree_search = TreeSearch(search)
+    return search, tree_search
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(parents=[
@@ -85,52 +119,12 @@ if __name__ == '__main__':
     if args.ingest:
         zounds.ingest(dataset, Sound, multi_threaded=True)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    network = EmbeddingNetwork().to(device)
-
-    try:
-        # load network weights from a file on disk
-        state_dict = torch.load(args.weights_file_path)
-        network.load_state_dict(state_dict)
-    except IOError:
-        # There were no weights stored on disk.  Initialize them
-        network.initialize_weights()
+    network, device = EmbeddingNetwork.load_network(args.weights_file_path)
 
     if args.search:
-        try:
-            with open(args.search_file_path, 'rb') as f:
-                search = pickle.load(f)
-        except IOError:
-            def gen():
-                for snd in list(Sound):
-                    windowed = snd.resampled.sliding_window(zounds.SampleRate(
-                        frequency=samplerate.frequency * window_size_samples,
-                        duration=samplerate.frequency * window_size_samples
-                    ))
-                    raw = zounds.learn.apply_network(
-                        network,
-                        windowed.astype(np.float32),
-                        chunksize=64)
-                    ts = zounds.ArrayWithUnits(raw, windowed.dimensions)
-                    print(snd._id)
-                    yield snd._id, ts
-
-            search = zounds.BruteForceSearch(gen(), distance_metric='cosine')
-            with open(args.search_file_path, 'wb') as f:
-                pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
-        tree_search = TreeSearch(search)
+        search, tree_search = build_search_index()
     else:
-        sampler = TripletSampler(
-            Sound, slice_duration, deformations, temporal_proximity)
-        trainer = Trainer(
-            network=network,
-            triplet_sampler=sampler,
-            learning_rate=1e-4,
-            batch_size=args.batch_size).to(device)
-        for batch_num, error in enumerate(trainer.train()):
-            print('Batch: {batch_num}, Error: {error}'.format(**locals()))
-            if batch_num % args.checkpoint == 0:
-                torch.save(network.state_dict(), args.weights_file_path)
+        train()
 
     app = zounds.ZoundsApp(
         model=Sound,
