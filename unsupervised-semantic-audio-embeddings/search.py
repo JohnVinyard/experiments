@@ -24,43 +24,29 @@ def unit_vectors(n_examples, n_dims):
     return batch_unit_norm(dense)
 
 
-def hyperplanes(n_planes, n_dims):
+def random_projection(plane_vectors, data):
     """
-    Return n_planes plane vectors, which describe
-    hyperplanes in n_dims space that are perpendicular
-    to lines running from the origin to each point
+    Take the dot product of data with a set of points that define hyperplanes
+    in that they lie perpendicular to the plane.  The sign of each output
+    dimension indicates the side of the plane on which each data point lies.
     """
-    return unit_vectors(n_planes, n_dims)
-
-
-def random_projection(plane_vectors, data, pack=True, binarize=True):
-    """
-    Return bit strings for a batch of vectors, with each
-    bit representing which side of each hyperplane the point
-    falls on
-    """
-
     flattened = data.reshape((len(data), plane_vectors.shape[-1]))
-    x = np.dot(plane_vectors, flattened.T).T
-    if not binarize:
-        return x
-
-    output = np.zeros((len(data), len(plane_vectors)), dtype=np.uint8)
-    output[np.where(x > 0)] = 1
-
-    if pack:
-        output = np.packbits(output, axis=-1).view(np.uint64)
-
-    return output
+    return np.dot(plane_vectors, flattened.T).T
 
 
 class HyperPlaneNode(object):
+    """
+    A single node in an annoy-like (https://github.com/spotify/annoy) index
+    which subdivides data by defining a hyperplane and assigning to child nodes
+    based on which side of the hyperplane each data point lies
+    """
+
     def __init__(self, shape, data=None):
         super(HyperPlaneNode, self).__init__()
         self.dimensions = shape
 
-        # choose one plane, at random, for this node
-        self.plane = hyperplanes(1, shape)
+        # define a hyperplane with a point that lies perpendicular to the plane
+        self.plane = unit_vectors(1, shape)
 
         self.data = \
             data if data is not None else np.zeros((0,), dtype=np.uint64)
@@ -69,23 +55,37 @@ class HyperPlaneNode(object):
         self.right = None
 
     def __len__(self):
+        """
+        The number of items held by this node and all descendant nodes
+        """
         return len(self.data)
 
     @property
     def is_leaf(self):
+        """
+        True when the node has no children
+        """
         return self.left is None and self.right is None
 
     @property
     def children(self):
+        """
+        Returns a two-tuple of this node's left and right sub-nodes
+        """
         return self.left, self.right
 
     def distance(self, query):
-        dist = random_projection(
-            self.plane, query, pack=False, binarize=False).reshape(-1)
-        return dist
+        """
+        Compute the distance from this node's hyperplane, the sign of which
+        determines the *side* of the hyperplane on which each data point falls
+        """
+        return random_projection(self.plane, query).reshape(-1)
 
     def route(self, data, indices=None):
-
+        """
+        Return the indices of elements that should be routed to the left and
+        right nodes, respectively
+        """
         if indices is None:
             indices = self.data
         data = data[indices]
@@ -96,14 +96,24 @@ class HyperPlaneNode(object):
         return left_indices, right_indices
 
     def create_children(self, data):
+        """
+        Look at some incoming data, and route it to two new left and right
+        child nodes
+        """
         left_indices, right_indices = self.route(data)
         self.left = HyperPlaneNode(self.dimensions, left_indices)
         self.right = HyperPlaneNode(self.dimensions, right_indices)
 
 
-class MultiHyperPlaneTree(object):
+class HyperPlaneTree(object):
+    """
+    Create a log time index that allows approximate nearest-neighbor searches
+    over high-dimensional data by building multiple trees that subdivide data
+    at each node by splitting space with a random hyperplane
+    """
+
     def __init__(self, data, smallest_node, n_trees=10):
-        super(MultiHyperPlaneTree, self).__init__()
+        super(HyperPlaneTree, self).__init__()
         self.dimensions = data.shape[1]
         self.data = data
         indices = np.arange(0, len(data), dtype=np.uint64)
@@ -123,6 +133,11 @@ class MultiHyperPlaneTree(object):
                 build_queue.extend(node.children)
 
     def append(self, chunk):
+        """
+        Append a new chunk of data to the index, assigning it to the correct
+        nodes, and creating new nodes if current leaf nodes have grown beyond
+        the configured size.
+        """
 
         # compute the new set of indices that need to be added to the tree
         new_indices = np.arange(0, len(chunk), dtype=np.uint64) + len(self.data)
@@ -157,13 +172,32 @@ class MultiHyperPlaneTree(object):
                 search_queue.append((node.left, left_indices))
                 search_queue.append((node.right, right_indices))
 
-    def search_with_priority_queue(self, query, n_results, threshold):
+    def _brute_force_search(self, indices, query, n_results):
+        """
+        Perform a brute-force search over a subset of the data, narrowed
+        significantly using the index.
+        """
+        indices = np.array(list(indices), dtype=np.uint64)
+        data = self.data[indices]
+        dist = cdist(query, data, metric='cosine').squeeze()
+        partitioned_indices = np.argpartition(dist, n_results)[:n_results]
+        sorted_indices = np.argsort(dist[partitioned_indices])
+        srt_indices = partitioned_indices[sorted_indices]
+        return indices[srt_indices]
+
+    def search(self, query, n_results, threshold):
+        """
+        Perform an approximate nearest-neighbors search to find n_results that
+        are similar (have a low cosine distance or angle) with query
+        """
         query = query.reshape(1, self.dimensions)
 
+        # indices of candidate elements that will be further narrowed and
+        # ordered using a brute force search once all trees have been searched
         indices = set()
 
-        # this is kinda arbitrary.
-        # How do I pick this intelligently?
+        # TODO: this number of candidate results to consider is entirely
+        # arbitrary.  How do I choose this in a principled way?
         to_consider = n_results * 100
 
         # put the root nodes in the queue
@@ -181,27 +215,31 @@ class MultiHyperPlaneTree(object):
             abs_dist = np.abs(dist)
             below_threshold = abs_dist < threshold
 
+            # route the query to the appropriate next node and push it onto
+            # the priority heap, assigning its priority in proportion to its
+            # distance to the hyperplane.  Hyperplanes that are further away
+            # will be a better split for this query, while nearby hyperplanes
+            # may subdivide space in an undesirable way.  If the hyperplane is
+            # too near, simply search both paths.
             if dist > 0 or below_threshold:
                 heapq.heappush(heap, (-abs_dist, current_node.left))
 
             if dist <= 0 or below_threshold:
                 heapq.heappush(heap, (-abs_dist, current_node.right))
 
-        # perform a brute-force distance search over a subset of the data
-        indices = np.array(list(indices), dtype=np.uint64)
-        data = self.data[indices]
-        dist = cdist(query, data, metric='cosine').squeeze()
-        partitioned_indices = np.argpartition(dist, n_results)[:n_results]
-        sorted_indices = np.argsort(dist[partitioned_indices])
-        srt_indices = partitioned_indices[sorted_indices]
-        return indices[srt_indices]
+        return self._brute_force_search(indices, query, n_results)
 
 
 class TreeSearch(object):
+    """
+    Build an annoy-like log time approximate nearest neighbors search from the
+    data stored in a brute-force search "index", which contains every embedding
+    in our database
+    """
     def __init__(self, brute_force_search, nodes_per_tree=1024, n_trees=32):
         super(TreeSearch, self).__init__()
         self.brute_force_search = brute_force_search
-        self.tree_search = MultiHyperPlaneTree(
+        self.tree_search = HyperPlaneTree(
             self.brute_force_search.index, nodes_per_tree, n_trees)
 
     def _brute_force(self, query, nresults):
@@ -212,7 +250,7 @@ class TreeSearch(object):
         return np.argsort(distances[0])[:nresults]
 
     def _tree(self, query, nresults, tolerance=0.01):
-        return self.tree_search.search_with_priority_queue(
+        return self.tree_search.search(
             query, nresults, tolerance)
 
     def random_search(self, n_results=50):

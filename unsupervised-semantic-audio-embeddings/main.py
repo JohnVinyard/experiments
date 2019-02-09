@@ -11,7 +11,6 @@ import numpy as np
 import cPickle as pickle
 from search import TreeSearch
 
-
 # resample all audio in our dataset to this rate
 samplerate = zounds.SR11025()
 
@@ -36,7 +35,8 @@ deformations = [
 ]
 
 
-@zounds.simple_lmdb_settings('/hdd/sounddb2', map_size=1e11, user_supplied_id=True)
+@zounds.simple_lmdb_settings(
+    '/hdd/sounddb2', map_size=1e11, user_supplied_id=True)
 class Sound(BaseModel):
     """
     An audio processing graph, that will resample each audio file to 11025hz
@@ -53,39 +53,57 @@ class Sound(BaseModel):
         needs=short_windowed)
 
 
-def train():
+def train(network, batch_size, device, checkpoint, weights_file_path):
+    """
+    Train the model indefinitely
+    """
     sampler = TripletSampler(
         Sound, slice_duration, deformations, temporal_proximity)
     trainer = Trainer(
         network=network,
         triplet_sampler=sampler,
         learning_rate=1e-4,
-        batch_size=args.batch_size).to(device)
+        batch_size=batch_size).to(device)
+
     for batch_num, error in enumerate(trainer.train()):
         print('Batch: {batch_num}, Error: {error}'.format(**locals()))
-        if batch_num % args.checkpoint == 0:
-            torch.save(network.state_dict(), args.weights_file_path)
+        if batch_num % checkpoint == 0:
+            torch.save(network.state_dict(), weights_file_path)
 
 
-def build_search_index():
+def compute_all_embeddings():
+    """
+    A generator that will compute embeddings for every non-overlapping segment
+    of duration window_size_samples in the database
+    """
+    for snd in list(Sound):
+        windowed = snd.resampled.sliding_window(
+            samplerate * window_size_samples).astype(np.float32)
+        arr = zounds.learn.apply_network(
+            network, windowed, chunksize=64)
+        ts = zounds.ArrayWithUnits(
+            arr, [windowed.dimensions[0], zounds.IdentityDimension()])
+        print(snd._id)
+        yield snd._id, ts
+
+
+def build_search_index(network, search_file_path):
+    """
+    Build both a brute force search index, as well as an index that uses a tree
+    of random hyperplane splits
+    """
     try:
-        with open(args.search_file_path, 'rb') as f:
+        with open(search_file_path, 'rb') as f:
             search = pickle.load(f)
     except IOError:
-        def gen():
-            for snd in list(Sound):
-                windowed = snd.resampled.sliding_window(
-                    samplerate * window_size_samples).astype(np.float32)
-                ts = zounds.learn.apply_network(
-                    network, windowed, chunksize=64)
-                print(snd._id)
-                yield snd._id, ts
-
-        search = zounds.BruteForceSearch(gen(), distance_metric='cosine')
-        with open(args.search_file_path, 'wb') as f:
+        search = zounds.BruteForceSearch(
+            compute_all_embeddings(network), distance_metric='cosine')
+        with open(search_file_path, 'wb') as f:
             pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
+
     tree_search = TreeSearch(search)
     return search, tree_search
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(parents=[
@@ -122,9 +140,16 @@ if __name__ == '__main__':
     network, device = EmbeddingNetwork.load_network(args.weights_file_path)
 
     if args.search:
-        search, tree_search = build_search_index()
+        search, tree_search = build_search_index(
+            network=network,
+            search_file_path=args.search_file_path)
     else:
-        train()
+        train(
+            network=network,
+            batch_size=args.batch_size,
+            device=device,
+            checkpoint=args.checkpoint,
+            weights_file_path=args.weights_file_path)
 
     app = zounds.ZoundsApp(
         model=Sound,

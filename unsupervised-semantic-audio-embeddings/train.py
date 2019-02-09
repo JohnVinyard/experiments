@@ -7,30 +7,11 @@ from time import sleep
 import threading
 
 
-class BatchQueue(object):
-    def __init__(self, triplet_sampler, batch_size, queue_size):
-        super(BatchQueue, self).__init__()
-        self.batch_size = batch_size
-        self.queue_size = queue_size
-        self.triplet_sampler = triplet_sampler
-        self.queue = []
-        self.t = threading.Thread(target=self.run)
-        self.t.daemon = True
-        self.t.start()
-
-    def run(self):
-        while True:
-            if len(self.queue) < self.queue_size:
-                self.queue.append(self.triplet_sampler.sample(self.batch_size))
-            sleep(0.1)
-
-    def pop(self):
-        while len(self.queue) < self.queue_size:
-            continue
-        return self.queue.pop()
-
-
 class Trainer(object):
+    """
+    The driver for the embedding network's training
+    """
+
     def __init__(
             self,
             network,
@@ -39,7 +20,6 @@ class Trainer(object):
             triplet_loss_margin=0.1,
             batch_size=32,
             batch_queue_size=20):
-
         super(Trainer, self).__init__()
         self.batch_queue_size = batch_queue_size
         self.batch_size = batch_size
@@ -60,6 +40,13 @@ class Trainer(object):
         return self
 
     def negative_mining(self, anchors, positives, negatives):
+        """
+        Reorganize the batch to make it more "difficult" by assigning negative
+        examples to the nearest anchor example, with the additional constraint
+        that they not be nearer than the positive example.  In other words,
+        mimimize the positive margin between positive and negative examples
+        within the batch
+        """
         device = anchors.device
 
         anchors = anchors.data.cpu().numpy()
@@ -75,6 +62,10 @@ class Trainer(object):
         return torch.from_numpy(indices).to(device)
 
     def train(self):
+        """
+        Sample batches, perform within-batch semi-hard negative mining, compute
+        the triplet loss and update network weights.
+        """
         while True:
             batch = self.batch_queue.pop()
             batch = torch.from_numpy(batch).float().to(self.device)
@@ -105,3 +96,37 @@ class Trainer(object):
             yield error.item()
 
 
+class BatchQueue(object):
+    """
+    Since sampling batches involves some IO and computation on the CPU, sample
+    batches in a thread separate from the main program so that the queue of
+    batches for training stays full (hopefully) and the GPU does not sit idle.
+    """
+
+    def __init__(self, triplet_sampler, batch_size, queue_size):
+        super(BatchQueue, self).__init__()
+        self.batch_size = batch_size
+        self.queue_size = queue_size
+        self.triplet_sampler = triplet_sampler
+        self.queue = []
+        self.t = threading.Thread(target=self.run)
+        self.t.daemon = True
+        self.t.start()
+
+    def run(self):
+        """
+        Sample batches indefinitely, ensuring that our queue is always of size
+        self.queue_size
+        """
+        while True:
+            if len(self.queue) < self.queue_size:
+                self.queue.append(self.triplet_sampler.sample(self.batch_size))
+            sleep(0.1)
+
+    def pop(self):
+        """
+        Grab a sample from the queue, blocking until one is available
+        """
+        while len(self.queue) < self.queue_size:
+            continue
+        return self.queue.pop()

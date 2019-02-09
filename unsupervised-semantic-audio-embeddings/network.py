@@ -12,7 +12,7 @@ import zounds
 class EmbeddingNetwork(nn.Module):
     """
     Compute Log-scaled mel spectrogram, followed by a vanilla 2d convolutional
-    network with alternating convolutional and average pooling layers
+    network with alternating convolutional and max pooling layers
     """
 
     def __init__(self):
@@ -22,8 +22,8 @@ class EmbeddingNetwork(nn.Module):
         channels = frequency_channels
 
         sr = zounds.SR11025()
-        band = zounds.FrequencyBand(20, sr.nyquist)
-        scale = zounds.MelScale(band, frequency_channels)
+        interval = zounds.FrequencyBand.audible_range(sr)
+        scale = zounds.MelScale(interval, frequency_channels)
         self.bank = zounds.learn.FilterBank(
             samplerate=sr,
             kernel_size=512,

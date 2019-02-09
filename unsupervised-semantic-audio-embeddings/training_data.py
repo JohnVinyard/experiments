@@ -3,31 +3,11 @@ import zounds
 import numpy as np
 
 
-class SoundSlice(object):
-    def __init__(self, sound_id, sound_duration, time_slice, samples):
-        super(SoundSlice, self).__init__()
-        self.samples = samples
-        self.time_slice = time_slice
-        self.sound_duration = sound_duration
-        self.sound_id = sound_id
-
-    @property
-    def start(self):
-        return self.time_slice.start
-
-    @property
-    def duration(self):
-        return self.time_slice.duration
-
-    @property
-    def end(self):
-        return self.time_slice.end
-
-
 class TripletSampler(object):
     """
     Sample (anchor, positive, negative) triplets from a zounds database
     """
+
     def __init__(
             self,
             sound_cls,
@@ -42,14 +22,24 @@ class TripletSampler(object):
             list(deformations) + [self._temporal_proximity_sentinel]
         self.slice_duration = slice_duration
         self.sound_cls = sound_cls
+
+        # compute the weighted probabilities of choosing segments from each
+        # sound based on its length.  Longer sounds will be chosen with a higher
+        # likelihood than shorter sounds, such that every segment in the
+        # database has an equal probability of being chosen
         items = [(snd._id, snd.resampled.end) for snd in self.sound_cls]
         durations = np.array([item[1] / zounds.Seconds(1) for item in items])
         probabilities = durations / durations.sum()
+
         self.probabilities = probabilities
         self.items = [item[0] for item in items]
         self.durations = dict(items)
 
     def _get_samples(self, sound_id, start_ps, pad=False):
+        """
+        Fetch the segment from sound_id starting at start_ps (picoseconds),
+        zero-padded when appropriate
+        """
         snd = self.sound_cls(_id=sound_id)
         start = zounds.Picoseconds(int(start_ps))
         time_slice = zounds.TimeSlice(start=start, duration=self.slice_duration)
@@ -72,12 +62,19 @@ class TripletSampler(object):
         return time_slice, samples
 
     def _random_sound(self):
+        """
+        Choose a sound at random based on the weighted probabilities computed in
+        __init__
+        """
         _id = np.random.choice(self.items, p=self.probabilities)
         duration = self.durations[_id]
         duration_ps = duration / zounds.Picoseconds(1)
         return _id, duration, duration_ps
 
     def _sample_slice(self, pad=False):
+        """
+        Choose an audio slice, at random, padding when necessary
+        """
         slice_duration_ps = self.slice_duration / zounds.Picoseconds(1)
 
         _id, duration, duration_ps = self._random_sound()
@@ -149,9 +146,11 @@ class TripletSampler(object):
             np.vstack(negatives), [identity_dim, time_dimension])
 
         if not is_temporal_proximity_batch:
-            # deform the anchor to derive the positve example
+            # deform the anchor to derive the positive example
             positives = deformation(anchors)
         else:
+            # positive examples have already been drawn from samples that occur
+            # near in time to the anchor examples
             positives = zounds.ArrayWithUnits(
                 np.vstack(positives), [identity_dim, time_dimension])
 
@@ -161,3 +160,28 @@ class TripletSampler(object):
             batch, [identity_dim, identity_dim, time_dimension])
         return batch
 
+
+class SoundSlice(object):
+    """
+    Convenience class that encapsulates the notion of a segment or slice of
+    audio samples, exposing the samples themselves, as well as their "address"
+    in their originating audio file
+    """
+    def __init__(self, sound_id, sound_duration, time_slice, samples):
+        super(SoundSlice, self).__init__()
+        self.samples = samples
+        self.time_slice = time_slice
+        self.sound_duration = sound_duration
+        self.sound_id = sound_id
+
+    @property
+    def start(self):
+        return self.time_slice.start
+
+    @property
+    def duration(self):
+        return self.time_slice.duration
+
+    @property
+    def end(self):
+        return self.time_slice.end
