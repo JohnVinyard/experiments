@@ -1,3 +1,4 @@
+from __future__ import division
 import torch
 from torch.optim import Adam
 from torch import nn
@@ -39,6 +40,40 @@ class Trainer(object):
         self.device = device
         return self
 
+    def _distance(self, a, b):
+        # KLUDGE: The distance computation here assumes that all embeddings
+        # already have unit norm
+        return 1 - (a * b).sum(axis=-1)
+
+    def _best_negative_indices(
+            self, anchors, negatives, anchor_to_positive_distances):
+        dist_matrix = cdist(anchors, negatives, metric='cosine')
+        diff = dist_matrix - anchor_to_positive_distances[:, None]
+        diff[diff <= 0] = np.finfo(diff.dtype).max
+        indices = np.argmin(diff, axis=-1)
+        return indices
+
+    def negative_mining_demo(self):
+        anchors, positives, negatives = \
+            self._sample_batch_and_compute_embeddings()
+
+        anchors = anchors.data.cpu().numpy()
+        positives = positives.data.cpu().numpy()
+        negatives = negatives.data.cpu().numpy()
+
+        anchor_to_positive_distances = self._distance(anchors, positives)
+        anchor_to_negative_distances = self._distance(anchors, negatives)
+
+        indices = self._best_negative_indices(
+            anchors, negatives, anchor_to_positive_distances)
+        new_anchor_to_negative_distances = self._distance(
+            anchors, negatives[indices])
+
+        return \
+            anchor_to_positive_distances, \
+            anchor_to_negative_distances, \
+            new_anchor_to_negative_distances
+
     def negative_mining(self, anchors, positives, negatives):
         """
         Reorganize the batch to make it more "difficult" by assigning negative
@@ -53,13 +88,35 @@ class Trainer(object):
         positives = positives.data.cpu().numpy()
         negatives = negatives.data.cpu().numpy()
 
-        anchor_to_positive_distances = \
-            np.linalg.norm(anchors - positives, axis=-1)
-        dist_matrix = cdist(anchors, negatives, metric='cosine')
-        diff = dist_matrix - anchor_to_positive_distances[:, None]
-        diff[diff <= 0] = np.finfo(diff.dtype).max
-        indices = np.argmin(diff, axis=-1)
+        anchor_to_positive_distances = self._distance(anchors, positives)
+        indices = self._best_negative_indices(
+            anchors, negatives, anchor_to_positive_distances)
         return torch.from_numpy(indices).to(device)
+
+    def _is_bad_update(self):
+        for p in self.network.parameters():
+            if p.data.grad is None:
+                continue
+
+            if bool(torch.isnan(p.data.grad).sum().item()):
+                print('Bad gradients detected!')
+                return True
+
+        return False
+
+    def _sample_batch_and_compute_embeddings(self):
+        batch = self.batch_queue.pop()
+        batch = torch.from_numpy(batch).float().to(self.device)
+
+        anchors = batch[:, 0, :]
+        positives = batch[:, 1, :]
+        negatives = batch[:, 2, :]
+
+        # compute embeddings for all examples
+        anchor_embedding = self.network(anchors)
+        positive_embedding = self.network(positives)
+        negative_embedding = self.network(negatives)
+        return anchor_embedding, positive_embedding, negative_embedding
 
     def train(self):
         """
@@ -67,17 +124,10 @@ class Trainer(object):
         the triplet loss and update network weights.
         """
         while True:
-            batch = self.batch_queue.pop()
-            batch = torch.from_numpy(batch).float().to(self.device)
+            self.network.zero_grad()
 
-            anchors = batch[:, 0, :]
-            positives = batch[:, 1, :]
-            negatives = batch[:, 2, :]
-
-            # compute embeddings for all examples
-            anchor_embedding = self.network(anchors)
-            positive_embedding = self.network(positives)
-            negative_embedding = self.network(negatives)
+            anchor_embedding, positive_embedding, negative_embedding = \
+                self._sample_batch_and_compute_embeddings()
 
             # reorder negative examples to maximize triplet difficulty
             hard_negative_indices = self.negative_mining(
@@ -90,6 +140,11 @@ class Trainer(object):
 
             # compute the gradients
             error.backward()
+
+            if self._is_bad_update():
+                # don't update the weights with these gradients, as they
+                # contain bad values
+                continue
 
             # update the network weights
             self.optimizer.step()

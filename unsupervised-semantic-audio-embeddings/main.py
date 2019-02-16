@@ -71,12 +71,12 @@ def train(network, batch_size, device, checkpoint, weights_file_path):
             torch.save(network.state_dict(), weights_file_path)
 
 
-def compute_all_embeddings():
+def compute_all_embeddings(network):
     """
     A generator that will compute embeddings for every non-overlapping segment
     of duration window_size_samples in the database
     """
-    for snd in list(Sound):
+    for snd in Sound:
         windowed = snd.resampled.sliding_window(
             samplerate * window_size_samples).astype(np.float32)
         arr = zounds.learn.apply_network(
@@ -101,8 +101,41 @@ def build_search_index(network, search_file_path):
         with open(search_file_path, 'wb') as f:
             pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
 
+    print('building tree...')
     tree_search = TreeSearch(search)
     return search, tree_search
+
+
+def demo_negative_mining(network, batch_size, device):
+    from matplotlib import pyplot as plt, gridspec
+    from itertools import product
+
+    sampler = TripletSampler(
+        Sound, slice_duration, deformations, temporal_proximity)
+    trainer = Trainer(
+        network=network,
+        triplet_sampler=sampler,
+        learning_rate=1e-4,
+        batch_size=batch_size).to(device)
+
+    spec = gridspec.GridSpec(4, 4, wspace=0.25, hspace=0.25)
+    fig = plt.figure(figsize=(15, 15))
+
+    for x, y in product(xrange(4), xrange(4)):
+        anchor_to_positive, anchor_to_negative, mined_anchor_to_negative = \
+            trainer.negative_mining_demo()
+
+        ax = plt.subplot(spec[x, y])
+        ax.plot(anchor_to_positive, label='anchor-to-positive')
+        ax.plot(anchor_to_negative, label='anchor-to-negative')
+        ax.plot(mined_anchor_to_negative, label='mined-anchor-to-negative')
+        ax.set_xticks([])
+        ax.set_ylim(0, 1.0)
+
+    plt.legend(bbox_to_anchor=(1, 0), loc="lower right")
+    plt.savefig(
+        'negative_mining.png'.format(**locals()), format='png')
+    fig.clf()
 
 
 if __name__ == '__main__':
@@ -132,6 +165,11 @@ if __name__ == '__main__':
         '--search-file-path',
         help='the path where a pre-built search should be stored',
         required=False)
+    parser.add_argument(
+        '--demo-negative-mining',
+        help='run a demo of within-batch semi-hard negative mining',
+        action='store_true')
+
     args = parser.parse_args()
 
     if args.ingest:
@@ -143,6 +181,8 @@ if __name__ == '__main__':
         search, tree_search = build_search_index(
             network=network,
             search_file_path=args.search_file_path)
+    elif args.demo_negative_mining:
+        demo_negative_mining(network, args.batch_size, device)
     else:
         train(
             network=network,
