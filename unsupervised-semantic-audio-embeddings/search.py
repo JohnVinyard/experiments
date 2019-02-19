@@ -185,7 +185,7 @@ class HyperPlaneTree(object):
         srt_indices = partitioned_indices[sorted_indices]
         return indices[srt_indices]
 
-    def search(self, query, n_results, threshold):
+    def search(self, query, n_results, threshold, n_trees=None):
         """
         Perform an approximate nearest-neighbors search to find n_results that
         are similar (have a low cosine distance or angle) with query
@@ -200,8 +200,9 @@ class HyperPlaneTree(object):
         # arbitrary.  How do I choose this in a principled way?
         to_consider = n_results * 100
 
+        roots = self.roots[:n_trees]
         # put the root nodes in the queue
-        heap = [(None, root) for root in self.roots]
+        heap = [(None, root) for root in roots]
 
         # traverse the tree, finding candidate indices
         while heap and len(indices) < to_consider:
@@ -249,9 +250,9 @@ class TreeSearch(object):
             metric=self.brute_force_search.distance_metric)
         return np.argsort(distances[0])[:nresults]
 
-    def _tree(self, query, nresults, tolerance=0.01):
+    def _tree(self, query, nresults, tolerance=0.01, n_trees=None):
         return self.tree_search.search(
-            query, nresults, tolerance)
+            query, nresults, tolerance, n_trees=n_trees)
 
     def random_search(self, n_results=50):
         query = choice(self.brute_force_search.index)
@@ -259,12 +260,14 @@ class TreeSearch(object):
         return zounds.index.SearchResults(
             query, (self.brute_force_search._ids[i] for i in indices))
 
-    def compare(self, n_results=50, tolerance=0.01):
+    def compare(
+            self, n_results=50, tolerance=0.001, n_trees=None, n_iterations=10):
+
         bfs_times = []
         tree_times = []
         overlaps = []
 
-        for i in xrange(10):
+        for i in xrange(n_iterations):
             query = choice(self.brute_force_search.index)
 
             start = time()
@@ -272,7 +275,8 @@ class TreeSearch(object):
             bfs_times.append(time() - start)
 
             start = time()
-            tree_indices = self._tree(query, n_results, tolerance=tolerance)
+            tree_indices = self._tree(
+                query, n_results, tolerance=tolerance, n_trees=n_trees)
             tree_times.append(time() - start)
 
             intersection = set(brute_force_indices) & set(tree_indices)
@@ -283,6 +287,48 @@ class TreeSearch(object):
             sum(overlaps) / len(overlaps), \
             sum(bfs_times) / len(bfs_times), \
             sum(tree_times) / len(tree_times)
+
+    def compare_and_plot(self, n_trees, n_iterations=100, n_results=100):
+        from matplotlib import pyplot as plt
+
+        overlaps = []
+        bf_times = []
+        tree_times = []
+
+        for nt in n_trees:
+            overlap, bf_time, tree_time = self.compare(
+                n_trees=nt, n_iterations=n_iterations, n_results=n_results)
+            overlaps.append(overlap)
+            bf_times.append(bf_time)
+            tree_times.append(tree_time)
+            print(nt, overlap, bf_time, tree_time)
+
+        bf_times = 1.0 / np.array(bf_times)
+        tree_times = 1.0 / np.array(tree_times)
+
+        fig = plt.figure()
+
+        plt.scatter(
+            [1.0],
+            [np.array(bf_times).mean()],
+            c='red',
+            marker='s',
+            label='brute_force')
+
+        plt.plot(
+            overlaps,
+            tree_times,
+            marker='x',
+            label='hyperplane_tree')
+        for nt, overlap, tree_time in zip(n_trees, overlaps, tree_times):
+            plt.annotate(nt, xy=[overlap, tree_time], textcoords='data')
+
+        plt.xlabel('accuracy', fontsize=20)
+        plt.ylabel('queries per second', fontsize=20)
+        plt.yscale('log', basey=10)
+        plt.legend()
+        plt.savefig('search_times.png', format='png')
+        fig.clf()
 
 
 def experiment(search):

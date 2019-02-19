@@ -87,7 +87,7 @@ def compute_all_embeddings(network):
         yield snd._id, ts
 
 
-def build_search_index(network, search_file_path):
+def build_search_index(network, search_file_path, n_trees=32):
     """
     Build both a brute force search index, as well as an index that uses a tree
     of random hyperplane splits
@@ -102,8 +102,18 @@ def build_search_index(network, search_file_path):
             pickle.dump(search, f, pickle.HIGHEST_PROTOCOL)
 
     print('building tree...')
-    tree_search = TreeSearch(search)
+    tree_search = TreeSearch(search, n_trees=n_trees)
     return search, tree_search
+
+
+def compare_search_indices(network, search_file_path):
+    search, tree_search = build_search_index(
+        network, search_file_path, n_trees=64)
+
+    tree_search.compare_and_plot(
+        n_trees=[1, 2, 4, 8, 16, 32, 64],
+        n_iterations=50,
+        n_results=50)
 
 
 def demo_negative_mining(network, batch_size, device):
@@ -133,8 +143,7 @@ def demo_negative_mining(network, batch_size, device):
         ax.set_ylim(0, 1.0)
 
     plt.legend(bbox_to_anchor=(1, 0), loc="lower right")
-    plt.savefig(
-        'negative_mining.png'.format(**locals()), format='png')
+    plt.savefig('negative_mining.png', format='png')
     fig.clf()
 
 
@@ -169,6 +178,10 @@ if __name__ == '__main__':
         '--demo-negative-mining',
         help='run a demo of within-batch semi-hard negative mining',
         action='store_true')
+    parser.add_argument(
+        '--compare-search-indices',
+        help='run a comparison of search indices',
+        action='store_true')
 
     args = parser.parse_args()
 
@@ -183,6 +196,8 @@ if __name__ == '__main__':
             search_file_path=args.search_file_path)
     elif args.demo_negative_mining:
         demo_negative_mining(network, args.batch_size, device)
+    elif args.compare_search_indices:
+        compare_search_indices(network, args.search_file_path)
     else:
         train(
             network=network,

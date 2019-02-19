@@ -43,6 +43,13 @@ class EmbeddingNetwork(nn.Module):
             nn.MaxPool2d((2, 2), (2, 2), padding=(1, 1)),
         )
 
+        # self.final = nn.Sequential(
+        #     nn.Linear(128, 64, bias=False),
+        #     nn.Linear(64, 32, bias=False),
+        #     nn.Linear(32, 16, bias=False),
+        #     nn.Linear(16, 8, bias=False),
+        # )
+
         self.linear = nn.Linear(128, 128, bias=False)
 
     @classmethod
@@ -72,6 +79,10 @@ class EmbeddingNetwork(nn.Module):
         for m in self.main.parameters():
             if m.data.dim() > 2:
                 xavier_normal_(m.data, calculate_gain('leaky_relu', 0.2))
+
+        # for m in self.final.parameters():
+        #     if m.data.dim() > 2:
+        #         xavier_normal_(m.data, calculate_gain('leaky_relu', 0.2))
 
         for m in self.linear.parameters():
             if m.data.dim() > 2:
@@ -103,6 +114,12 @@ class EmbeddingNetwork(nn.Module):
 
         # linear transformation
         x = x.view(-1, self.linear.in_features)
+
+        # x = x.view(-1, self.final[0].in_features)
+        # for f in self.final:
+        #     x = f(x)
+        #     x = F.leaky_relu(x, 0.2)
+
         x = self.linear(x)
         x = batchwise_unit_norm(x)
         return x
