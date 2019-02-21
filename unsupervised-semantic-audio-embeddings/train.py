@@ -6,6 +6,7 @@ from scipy.spatial.distance import cdist
 import numpy as np
 from time import sleep
 import threading
+from torch.nn import functional as F
 
 
 class Trainer(object):
@@ -34,16 +35,25 @@ class Trainer(object):
             filter(lambda p: p.requires_grad, network.parameters()),
             lr=learning_rate)
         self.device = torch.device('cpu')
-        self.loss = nn.TripletMarginLoss(margin=self.triplet_loss_margin)
 
     def to(self, device):
         self.device = device
         return self
 
-    def _distance(self, a, b):
+    def _cosine_distance(self, a, b):
         # KLUDGE: The distance computation here assumes that all embeddings
         # already have unit norm
         return 1 - (a * b).sum(axis=-1)
+
+    def _torch_cosine_distance(self, a, b):
+        # KLUDGE: The distance computation here assumes that all embeddings
+        # already have unit norm
+        return 1 - (a * b).sum(dim=-1)
+
+    def _loss(self, anchor, positive, negative):
+        d = self._torch_cosine_distance
+        diff = d(anchor, positive) - d(anchor, negative)
+        return F.relu(diff + self.triplet_loss_margin).mean()
 
     def _best_negative_indices(
             self, anchors, negatives, anchor_to_positive_distances):
@@ -61,12 +71,12 @@ class Trainer(object):
         positives = positives.data.cpu().numpy()
         negatives = negatives.data.cpu().numpy()
 
-        anchor_to_positive_distances = self._distance(anchors, positives)
-        anchor_to_negative_distances = self._distance(anchors, negatives)
+        anchor_to_positive_distances = self._cosine_distance(anchors, positives)
+        anchor_to_negative_distances = self._cosine_distance(anchors, negatives)
 
         indices = self._best_negative_indices(
             anchors, negatives, anchor_to_positive_distances)
-        new_anchor_to_negative_distances = self._distance(
+        new_anchor_to_negative_distances = self._cosine_distance(
             anchors, negatives[indices])
 
         return \
@@ -135,7 +145,7 @@ class Trainer(object):
             hard_negatives = negative_embedding[hard_negative_indices]
 
             # compute the triplet loss
-            error = self.loss(
+            error = self._loss(
                 anchor_embedding, positive_embedding, hard_negatives)
 
             # compute the gradients

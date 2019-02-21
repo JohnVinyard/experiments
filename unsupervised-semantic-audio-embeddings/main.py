@@ -63,7 +63,8 @@ def train(network, batch_size, device, checkpoint, weights_file_path):
         network=network,
         triplet_sampler=sampler,
         learning_rate=1e-4,
-        batch_size=batch_size).to(device)
+        batch_size=batch_size,
+        triplet_loss_margin=0.25).to(device)
 
     for batch_num, error in enumerate(trainer.train()):
         print('Batch: {batch_num}, Error: {error}'.format(**locals()))
@@ -132,7 +133,8 @@ def demo_negative_mining(network, batch_size, device):
         network=network,
         triplet_sampler=sampler,
         learning_rate=1e-4,
-        batch_size=batch_size).to(device)
+        batch_size=batch_size,
+        triplet_loss_margin=0.25).to(device)
 
     spec = gridspec.GridSpec(4, 4, wspace=0.25, hspace=0.25)
     fig = plt.figure(figsize=(15, 15))
