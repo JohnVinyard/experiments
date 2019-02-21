@@ -116,6 +116,12 @@ def compare_search_indices(network, search_file_path):
         n_results=50)
 
 
+def visualize_tree(network, search_file_path):
+    search, tree_search = build_search_index(
+        network, search_file_path, n_trees=1)
+    tree_search.visualize_tree()
+
+
 def demo_negative_mining(network, batch_size, device):
     from matplotlib import pyplot as plt, gridspec
     from itertools import product
@@ -182,6 +188,10 @@ if __name__ == '__main__':
         '--compare-search-indices',
         help='run a comparison of search indices',
         action='store_true')
+    parser.add_argument(
+        '--visualize-tree',
+        help='produce a visualization of one hyperplane tree',
+        action='store_true')
 
     args = parser.parse_args()
 
@@ -198,6 +208,8 @@ if __name__ == '__main__':
         demo_negative_mining(network, args.batch_size, device)
     elif args.compare_search_indices:
         compare_search_indices(network, args.search_file_path)
+    elif args.visualize_tree:
+        visualize_tree(network, args.search_file_path)
     else:
         train(
             network=network,

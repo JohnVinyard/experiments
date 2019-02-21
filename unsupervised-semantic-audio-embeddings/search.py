@@ -288,6 +288,35 @@ class TreeSearch(object):
             sum(bfs_times) / len(bfs_times), \
             sum(tree_times) / len(tree_times)
 
+    def visualize_tree(self):
+        import networkx
+        from matplotlib import pyplot as plt
+
+        g = networkx.DiGraph()
+        labels = dict()
+
+        stack = [self.tree_search.roots[0]]
+
+        while stack:
+            node = stack.pop()
+
+            if node not in g:
+                g.add_node(node)
+
+            if not node.is_leaf:
+                g.add_node(node.left)
+                g.add_node(node.right)
+                g.add_edge(node, node.left)
+                g.add_edge(node, node.right)
+                stack.append(node.left)
+                stack.append(node.right)
+
+            labels[node] = len(node)
+
+        plt.figure()
+        networkx.draw_networkx(g, with_labels=False, node_size=10, width=0.1)
+        plt.savefig('tree.png', format='png')
+
     def compare_and_plot(self, n_trees, n_iterations=100, n_results=100):
         from matplotlib import pyplot as plt
 
