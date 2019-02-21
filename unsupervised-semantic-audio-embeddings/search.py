@@ -289,33 +289,38 @@ class TreeSearch(object):
             sum(tree_times) / len(tree_times)
 
     def visualize_tree(self):
-        import networkx
-        from matplotlib import pyplot as plt
+        from graphviz import Graph
+        g = Graph('G', filename='tree.gv', format='svg')
+        g.attr(
+            'node',
+            label=str(1),
+            shape='square',
+            style='filled',
+            color='black',
+            width=str(0),
+            height=str(0))
+        g.attr('edge', penwidth=str(3))
 
-        g = networkx.DiGraph()
-        labels = dict()
+        def node_name(node):
+            return str(hash(node))
 
-        stack = [self.tree_search.roots[0]]
+        root_node = self.tree_search.roots[0]
+        stack = [root_node]
+        g.node(node_name(root_node))
 
         while stack:
             node = stack.pop()
-
-            if node not in g:
-                g.add_node(node)
-
             if not node.is_leaf:
-                g.add_node(node.left)
-                g.add_node(node.right)
-                g.add_edge(node, node.left)
-                g.add_edge(node, node.right)
+                name = node_name(node)
+                left_name = node_name(node.left)
+                right_name = node_name(node.right)
+                g.node(left_name)
+                g.node(right_name)
+                g.edge(name, left_name)
+                g.edge(name, right_name)
                 stack.append(node.left)
                 stack.append(node.right)
-
-            labels[node] = len(node)
-
-        plt.figure()
-        networkx.draw_networkx(g, with_labels=False, node_size=10, width=0.1)
-        plt.savefig('tree.png', format='png')
+        g.view()
 
     def compare_and_plot(self, n_trees, n_iterations=100, n_results=100):
         from matplotlib import pyplot as plt
