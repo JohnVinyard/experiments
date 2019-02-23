@@ -107,6 +107,89 @@ def build_search_index(network, search_file_path, n_trees=32):
     return search, tree_search
 
 
+def visualize_embeddings(network, search_file_path):
+    from matplotlib import cm
+    from sklearn.manifold import TSNE
+    from matplotlib import pyplot as plt
+
+    # map labels/categories to some known examples of sounds that fall into
+    # that category
+    class_to_id = {
+        'piano': {'AOC11B', 'CHOPINBallades-NEWTRANSFER'},
+        'pop': {'02.LostInTheShadowsLouGramm', '08Scandalous'},
+        'jazz': {'Free_20s_Jazz_Collection'},
+        'hip-hop': {'LucaBrasi2', 'Chance_The_Rapper_-_Coloring_Book'},
+        'speech': {
+            'Greatest_Speeches_of_the_20th_Century', 'The_Speeches-8291'},
+        'nintendo': {
+            'CastlevaniaNESMusicStage10WalkingOnTheEdge',
+            'SuperMarioBros3NESMusicWorldMap6'}
+    }
+
+    # map a color to each category
+    color_map = cm.Paired
+    color_index = dict(
+        (key, color_map(x)) for x, key
+        in zip(np.linspace(0, 1, len(class_to_id)), class_to_id.iterkeys()))
+
+    # map sound ids to their labels
+    id_index = dict()
+    for snd in Sound:
+        for label, _ids in class_to_id.iteritems():
+            for _id in _ids:
+                if _id in snd._id:
+                    id_index[snd._id] = label
+
+    # reduce the entire database of computed embeddings to just those with the
+    # ids we care about
+    search, tree_search = build_search_index(
+        network, search_file_path, n_trees=1)
+
+    # build up two sequences, one that contains the indices we're interested in
+    # and the other that contains the color that should be assigned to that
+    # data point
+    indices = []
+    labels = []
+    for index, pair in enumerate(search._ids):
+        _id, _ = pair
+
+        try:
+            label = id_index[_id]
+            labels.append(label)
+            indices.append(index)
+        except KeyError:
+            continue
+
+    indices = np.array(indices)
+    labels = np.array(labels)
+
+    # shuffle indices and take the first N
+    new_indices = np.random.permutation(len(indices))[:int(2e4)]
+    indices = indices[new_indices]
+    labels = labels[new_indices]
+
+    embeddings = search.index[indices]
+    print(embeddings.shape)
+
+    # dist = cosine_distances(embeddings, embeddings)
+    # print(dist.shape)
+    model = TSNE(metric='cosine')
+    points = model.fit_transform(embeddings)
+    print(points.shape)
+    plt.figure(figsize=(15, 15))
+
+    for label in class_to_id.iterkeys():
+        label_indices = np.where(labels == label)[0]
+        p = points[label_indices]
+        color = color_index[label]
+        plt.scatter(p[:, 0], p[:, 1], c=[color], label=label, edgecolors='none')
+
+    plt.xticks([])
+    plt.yticks([])
+    plt.legend()
+    plt.savefig('t-SNE.png')
+
+
 def compare_search_indices(network, search_file_path):
     search, tree_search = build_search_index(
         network, search_file_path, n_trees=64)
@@ -194,6 +277,11 @@ if __name__ == '__main__':
         '--visualize-tree',
         help='produce a visualization of one hyperplane tree',
         action='store_true')
+    parser.add_argument(
+        '--visualize-embeddings',
+        help='produce a 2d visualiation of the embeddings using t-SNE',
+        action='store_true'
+    )
 
     args = parser.parse_args()
 
@@ -212,6 +300,8 @@ if __name__ == '__main__':
         compare_search_indices(network, args.search_file_path)
     elif args.visualize_tree:
         visualize_tree(network, args.search_file_path)
+    elif args.visualize_embeddings:
+        visualize_embeddings(network, args.search_file_path)
     else:
         train(
             network=network,
