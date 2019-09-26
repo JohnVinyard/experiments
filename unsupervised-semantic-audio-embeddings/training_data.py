@@ -121,7 +121,7 @@ class TripletSampler(object):
         positives = []
         negatives = []
 
-        for _ in xrange(batch_size):
+        for _ in range(batch_size):
             # choose positive and negative examples randomly
             anchor_sound_slice = self._sample_slice(
                 pad=not is_temporal_proximity_batch)

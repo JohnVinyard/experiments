@@ -98,7 +98,7 @@ class Trainer(object):
         positives = positives.data.cpu().numpy()
         negatives = negatives.data.cpu().numpy()
 
-        anchor_to_positive_distances = self._distance(anchors, positives)
+        anchor_to_positive_distances = self._cosine_distance(anchors, positives)
         indices = self._best_negative_indices(
             anchors, negatives, anchor_to_positive_distances)
         return torch.from_numpy(indices).to(device)
@@ -161,6 +161,7 @@ class Trainer(object):
             yield error.item()
 
 
+
 class BatchQueue(object):
     """
     Since sampling batches involves some IO and computation on the CPU, sample
@@ -183,9 +184,14 @@ class BatchQueue(object):
         Sample batches indefinitely, ensuring that our queue is always of size
         self.queue_size
         """
+
+        def do_work():
+            self.queue.append(self.triplet_sampler.sample(self.batch_size))
+
         while True:
             if len(self.queue) < self.queue_size:
                 self.queue.append(self.triplet_sampler.sample(self.batch_size))
+                print(f'batch queue size: {len(self.queue)}')
             sleep(0.1)
 
     def pop(self):
@@ -194,4 +200,6 @@ class BatchQueue(object):
         """
         while len(self.queue) < self.queue_size:
             continue
-        return self.queue.pop()
+        item = self.queue.pop()
+        print(f'batch queue size: {len(self.queue)}')
+        return item
